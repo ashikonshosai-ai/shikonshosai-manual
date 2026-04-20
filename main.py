@@ -1,4 +1,6 @@
 import os, json, httpx
+import dropbox
+from dropbox.exceptions import ApiError as DropboxApiError
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -10,46 +12,27 @@ DROPBOX_APP_SECRET   = os.environ.get("DROPBOX_APP_SECRET")
 DROPBOX_REFRESH_TOKEN = os.environ.get("DROPBOX_REFRESH_TOKEN")
 MANUALS_PATH = "/400000_CC/shikonshosai/manuals.json"
 
-async def get_dropbox_token():
-    async with httpx.AsyncClient() as client:
-        r = await client.post(
-            "https://api.dropbox.com/oauth2/token",
-            data={"grant_type": "refresh_token", "refresh_token": DROPBOX_REFRESH_TOKEN},
-            auth=(DROPBOX_APP_KEY, DROPBOX_APP_SECRET)
-        )
-        return r.json()["access_token"]
+def _get_dropbox_client():
+    return dropbox.Dropbox(
+        oauth2_refresh_token=DROPBOX_REFRESH_TOKEN,
+        app_key=DROPBOX_APP_KEY,
+        app_secret=DROPBOX_APP_SECRET,
+    )
 
 async def dropbox_get(path: str):
-    token = await get_dropbox_token()
-    async with httpx.AsyncClient() as client:
-        r = await client.post(
-            "https://api.dropboxapi.com/2/files/download",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Dropbox-API-Arg": json.dumps({"path": path})
-            }
-        )
-        if r.status_code == 200:
-            return r.json()
-        return None
+    try:
+        dbx = _get_dropbox_client()
+        _, res = dbx.files_download(path)
+        return json.loads(res.content)
+    except DropboxApiError as e:
+        if e.error.is_path() and e.error.get_path().is_not_found():
+            return None
+        raise
 
 async def dropbox_save(path: str, data: dict):
-    token = await get_dropbox_token()
-    content = json.dumps(data, ensure_ascii=False, indent=2).encode()
-    async with httpx.AsyncClient() as client:
-        await client.post(
-            "https://api.dropboxapi.com/2/files/upload",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Dropbox-API-Arg": json.dumps({
-                    "path": path,
-                    "mode": "overwrite",
-                    "autorename": False
-                }),
-                "Content-Type": "application/octet-stream"
-            },
-            content=content
-        )
+    dbx = _get_dropbox_client()
+    content = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+    dbx.files_upload(content, path, mode=dropbox.files.WriteMode.overwrite, mute=True)
 
 @app.get("/api/manuals")
 async def get_manuals():
