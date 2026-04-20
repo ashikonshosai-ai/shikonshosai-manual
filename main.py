@@ -10,8 +10,9 @@ app = FastAPI()
 DROPBOX_APP_KEY      = os.environ.get("DROPBOX_APP_KEY")
 DROPBOX_APP_SECRET   = os.environ.get("DROPBOX_APP_SECRET")
 DROPBOX_REFRESH_TOKEN = os.environ.get("DROPBOX_REFRESH_TOKEN")
-MANUALS_PATH = "/400000_CC/shikonshosai/manuals.json"
-IMAGES_BASE  = "/400000_CC/shikonshosai/manual_images"
+MANUALS_PATH  = "/400000_CC/shikonshosai/manuals.json"
+NOTICES_PATH  = "/400000_CC/shikonshosai/notices.json"
+IMAGES_BASE   = "/400000_CC/shikonshosai/manual_images"
 
 def _get_dropbox_client():
     return dropbox.Dropbox(
@@ -46,6 +47,17 @@ async def get_manuals():
 async def save_manuals(request: Request):
     data = await request.json()
     await dropbox_save(MANUALS_PATH, data)
+    return {"ok": True}
+
+@app.get("/api/notices")
+async def get_notices():
+    data = await dropbox_get(NOTICES_PATH)
+    return data if data else {"notices": []}
+
+@app.post("/api/notices")
+async def save_notices(request: Request):
+    data = await request.json()
+    await dropbox_save(NOTICES_PATH, data)
     return {"ok": True}
 
 @app.post("/api/manuals/upload_image")
