@@ -627,7 +627,6 @@ function renderHome() {
     </div>`;
 
   el.innerHTML = `
-    ${qaHtml}
     <div style="margin-bottom:24px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div class="home-section-title" style="margin-bottom:0;border-bottom:none">📢 お知らせ</div>
@@ -636,6 +635,7 @@ function renderHome() {
       <div style="border-bottom:1px solid #e2e8f0;margin-bottom:10px"></div>
       ${noticeHtml}
     </div>
+    ${qaHtml}
     <div>
       <div class="home-section-title">🕐 最近の更新</div>
       ${updatesHtml}
