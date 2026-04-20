@@ -103,6 +103,77 @@
 
   /* 空状態 */
   .empty { color: #94a3b8; font-size: 13px; padding: 24px 0; }
+
+  /* スマホ対応 */
+  @media (max-width: 768px) {
+    body { display: block; height: auto; }
+
+    /* 左ペインを横スクロールのタブ形式に */
+    .left-pane {
+      width: 100% !important;
+      min-width: 0 !important;
+      height: auto !important;
+      border-right: none !important;
+      border-bottom: 1px solid #e2e8f0;
+      flex-direction: row !important;
+      overflow-x: auto !important;
+      overflow-y: hidden !important;
+      -webkit-overflow-scrolling: touch;
+      padding: 8px 4px !important;
+      white-space: nowrap;
+    }
+    .left-pane-list {
+      display: flex;
+      flex-direction: row;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 0 !important;
+      flex: none;
+    }
+    .left-pane-footer {
+      border-top: none !important;
+      padding: 4px !important;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+    }
+    .cat-item {
+      display: inline-block !important;
+      padding: 6px 12px !important;
+      margin: 0 4px !important;
+      border-radius: 20px !important;
+      border-left: none !important;
+      border: 1px solid #e2e8f0 !important;
+      white-space: nowrap;
+      flex-shrink: 0;
+      overflow: visible !important;
+      text-overflow: unset !important;
+    }
+    .cat-item.active {
+      border-color: #3b82f6 !important;
+    }
+    .btn-add {
+      width: auto !important;
+      white-space: nowrap;
+      padding: 6px 12px !important;
+    }
+
+    /* 2カラムレイアウトを縦に */
+    .layout { flex-direction: column; height: auto; overflow: visible; }
+
+    /* 右ペインを全幅に */
+    .right-pane { padding: 12px !important; overflow-y: visible; }
+
+    /* 画像を全幅に */
+    img { max-width: 100% !important; height: auto !important; }
+
+    /* モーダルを全幅に */
+    .modal {
+      width: 95% !important;
+      max-height: 90vh !important;
+      overflow-y: auto !important;
+    }
+  }
 </style>
 </head>
 <body>
