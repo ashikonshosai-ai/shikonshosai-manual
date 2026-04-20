@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>事務所マニュアル</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; font-size: 14px; background: #f8fafc; height: 100vh; display: flex; flex-direction: column; }
+
+  /* ヘッダー */
+  .header { background: #1e3a5f; color: white; padding: 12px 24px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+  .header-eyebrow { font-size: 11px; color: #93c5fd; }
+  .header-title { font-size: 18px; font-weight: 600; }
+
+  /* 2カラムレイアウト */
+  .layout { display: flex; flex: 1; overflow: hidden; }
+
+  /* 左ペイン */
+  .left-pane {
+    width: 180px; min-width: 180px;
+    background: #f8fafc;
+    border-right: 1px solid #e2e8f0;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .left-pane-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+  .left-pane-footer { padding: 8px; border-top: 1px solid #e2e8f0; }
+  .cat-item {
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: #334155;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-left: 3px solid transparent;
+  }
+  .cat-item:hover { background: #f1f5f9; }
+  .cat-item.active { background: #eff6ff; border-left-color: #3b82f6; color: #1d4ed8; font-weight: 600; }
+
+  /* 右ペイン */
+  .right-pane { flex: 1; background: #ffffff; overflow-y: auto; padding: 24px; }
+  .right-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .right-title { font-size: 16px; font-weight: 700; color: #0f172a; }
+
+  /* ボタン */
+  .btn { padding: 7px 14px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; }
+  .btn-blue { background: #2563eb; color: #fff; }
+  .btn-blue:hover { background: #1d4ed8; }
+  .btn-gray { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+  .btn-gray:hover { background: #e2e8f0; }
+  .btn-text-red { background: none; border: none; color: #ef4444; font-size: 13px; cursor: pointer; padding: 4px 8px; }
+  .btn-text-red:hover { text-decoration: underline; }
+  .btn-add { width: 100%; padding: 8px; background: #eff6ff; color: #2563eb; border: 1px dashed #93c5fd; border-radius: 6px; font-size: 13px; cursor: pointer; }
+  .btn-add:hover { background: #dbeafe; }
+
+  /* カード */
+  .card { border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
+  .card-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; cursor: pointer; background: #f8fafc; }
+  .card-header:hover { background: #f1f5f9; }
+  .card-title { font-size: 14px; font-weight: 600; color: #0f172a; }
+  .card-meta { font-size: 11px; color: #94a3b8; white-space: nowrap; margin-left: 8px; }
+  .card-badge { display: inline-block; font-size: 11px; background: #eff6ff; color: #1d4ed8; padding: 2px 7px; border-radius: 10px; margin-left: 8px; }
+  .card-body { display: none; padding: 16px; border-top: 1px solid #e2e8f0; }
+  .card-body.open { display: block; }
+  .card-content { font-size: 13px; color: #334155; white-space: pre-wrap; line-height: 1.7; margin-bottom: 12px; }
+  .card-video-link { display: inline-block; font-size: 13px; color: #2563eb; font-weight: 600; margin-bottom: 12px; }
+  .card-actions { display: flex; gap: 8px; align-items: center; }
+
+  /* モーダル */
+  .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; align-items: center; justify-content: center; }
+  .overlay.open { display: flex; }
+  .modal { background: #fff; border-radius: 12px; padding: 28px; width: 520px; max-width: 95vw; box-shadow: 0 8px 32px rgba(0,0,0,.18); }
+  .modal-title { font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 18px; }
+  .field-label { font-size: 12px; color: #475569; margin-bottom: 4px; }
+  .field-input { width: 100%; border: 1.5px solid #e2e8f0; border-radius: 7px; padding: 8px 10px; font-size: 13px; font-family: inherit; margin-bottom: 14px; }
+  .field-input:focus { outline: none; border-color: #3b82f6; }
+  .field-textarea { width: 100%; height: 200px; border: 1.5px solid #e2e8f0; border-radius: 7px; padding: 10px; font-size: 13px; font-family: inherit; resize: vertical; margin-bottom: 14px; }
+  .field-textarea:focus { outline: none; border-color: #3b82f6; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+  /* 空状態 */
+  .empty { color: #94a3b8; font-size: 13px; padding: 24px 0; }
+</style>
+</head>
+<body>
+
+<!-- ヘッダー -->
+<div class="header">
+  <span class="header-eyebrow">税理士法人士魂商才</span>
+  <span class="header-title">事務所マニュアル</span>
+</div>
+
+<!-- 2カラムレイアウト -->
+<div class="layout">
+  <!-- 左ペイン -->
+  <div class="left-pane">
+    <div class="left-pane-list" id="cat-list"></div>
+    <div class="left-pane-footer">
+      <button class="btn-add" onclick="addCategory()">＋ カテゴリ追加</button>
+    </div>
+  </div>
+
+  <!-- 右ペイン -->
+  <div class="right-pane">
+    <div class="right-header">
+      <div class="right-title" id="right-title">カテゴリを選択してください</div>
+      <button class="btn btn-blue" id="btn-add-manual" style="display:none" onclick="addManual()">＋ マニュアル追加</button>
+    </div>
+    <div id="manual-list"></div>
+  </div>
+</div>
+
+<!-- 編集モーダル -->
+<div class="overlay" id="edit-overlay">
+  <div class="modal">
+    <div class="modal-title">マニュアルを編集</div>
+    <div class="field-label">タイトル</div>
+    <input class="field-input" id="edit-title" type="text" placeholder="タイトルを入力">
+    <div class="field-label">本文</div>
+    <textarea class="field-textarea" id="edit-content" placeholder="手順・内容を入力"></textarea>
+    <div class="field-label">動画URL（YouTubeまたはVimeo）</div>
+    <input class="field-input" id="edit-video" type="text" placeholder="https://...">
+    <div class="field-label">更新者</div>
+    <input class="field-input" id="edit-author" type="text" placeholder="氏名">
+    <div class="modal-actions">
+      <button class="btn btn-gray" onclick="closeModal()">キャンセル</button>
+      <button class="btn btn-blue" onclick="saveManual()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let _data = { categories: [] };
+let _selCatId = null;
+let _editCatId = null, _editManualId = null;
+
+// 起動時にデータ取得
+(async () => {
+  const res = await fetch('/api/manuals');
+  _data = await res.json();
+  if (!_data.categories) _data.categories = [];
+  if (_data.categories.length > 0) _selCatId = _data.categories[0].id;
+  render();
+})();
+
+function render() {
+  // 左ペイン
+  const catList = document.getElementById('cat-list');
+  catList.innerHTML = '';
+  _data.categories.forEach(cat => {
+    const el = document.createElement('div');
+    el.className = 'cat-item' + (cat.id === _selCatId ? ' active' : '');
+    el.title = cat.name;
+    el.textContent = cat.name;
+    el.onclick = () => { _selCatId = cat.id; render(); };
+    catList.appendChild(el);
+  });
+
+  // 右ペイン
+  const cat = _data.categories.find(c => c.id === _selCatId);
+  document.getElementById('right-title').textContent = cat ? cat.name : 'カテゴリを選択してください';
+  document.getElementById('btn-add-manual').style.display = cat ? 'inline-block' : 'none';
+
+  const list = document.getElementById('manual-list');
+  list.innerHTML = '';
+  if (!cat) return;
+  if (!cat.manuals || cat.manuals.length === 0) {
+    list.innerHTML = '<div class="empty">マニュアルがありません</div>';
+    return;
+  }
+  cat.manuals.forEach(m => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-header" onclick="toggleCard('${m.id}')">
+        <div style="display:flex;align-items:center;min-width:0">
+          <span class="card-title">${esc(m.title)}</span>
+          ${m.video_url ? '<span class="card-badge">動画あり</span>' : ''}
+        </div>
+        <span class="card-meta">${m.updated_at || ''}${m.updated_by ? ' / ' + esc(m.updated_by) : ''}</span>
+      </div>
+      <div class="card-body" id="body-${m.id}">
+        <div class="card-content">${esc(m.content || '')}</div>
+        ${m.video_url ? `<a class="card-video-link" href="${esc(m.video_url)}" target="_blank">▶ 動画を見る</a>` : ''}
+        <div class="card-actions">
+          <button class="btn btn-gray" onclick="openModal('${_selCatId}','${m.id}')">編集</button>
+          <button class="btn-text-red" onclick="deleteManual('${_selCatId}','${m.id}')">削除</button>
+        </div>
+      </div>`;
+    list.appendChild(card);
+  });
+}
+
+function toggleCard(id) {
+  const el = document.getElementById('body-' + id);
+  el.classList.toggle('open');
+}
+
+async function addCategory() {
+  const name = prompt('カテゴリ名を入力してください');
+  if (!name || !name.trim()) return;
+  const id = 'cat_' + Date.now();
+  _data.categories.push({ id, name: name.trim(), manuals: [] });
+  _selCatId = id;
+  await save();
+  render();
+}
+
+async function deleteCategory(id) {
+  const cat = _data.categories.find(c => c.id === id);
+  if (!confirm(`「${cat?.name}」を削除しますか？\nマニュアルもすべて削除されます。`)) return;
+  _data.categories = _data.categories.filter(c => c.id !== id);
+  if (_selCatId === id) _selCatId = _data.categories[0]?.id || null;
+  await save();
+  render();
+}
+
+async function addManual() {
+  const title = prompt('マニュアルのタイトルを入力してください');
+  if (!title || !title.trim()) return;
+  const cat = _data.categories.find(c => c.id === _selCatId);
+  if (!cat) return;
+  const id = 'm_' + Date.now();
+  if (!cat.manuals) cat.manuals = [];
+  cat.manuals.push({ id, title: title.trim(), content: '', video_url: '', updated_at: today(), updated_by: '' });
+  await save();
+  render();
+  openModal(_selCatId, id);
+}
+
+async function deleteManual(catId, manualId) {
+  const cat = _data.categories.find(c => c.id === catId);
+  const m = cat?.manuals?.find(x => x.id === manualId);
+  if (!confirm(`「${m?.title}」を削除しますか？`)) return;
+  cat.manuals = cat.manuals.filter(x => x.id !== manualId);
+  await save();
+  render();
+}
+
+function openModal(catId, manualId) {
+  const cat = _data.categories.find(c => c.id === catId);
+  const m = cat?.manuals?.find(x => x.id === manualId);
+  if (!m) return;
+  _editCatId = catId;
+  _editManualId = manualId;
+  document.getElementById('edit-title').value = m.title;
+  document.getElementById('edit-content').value = m.content || '';
+  document.getElementById('edit-video').value = m.video_url || '';
+  document.getElementById('edit-author').value = m.updated_by || '';
+  document.getElementById('edit-overlay').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('edit-overlay').classList.remove('open');
+}
+
+async function saveManual() {
+  const cat = _data.categories.find(c => c.id === _editCatId);
+  const m = cat?.manuals?.find(x => x.id === _editManualId);
+  if (!m) return;
+  m.title      = document.getElementById('edit-title').value.trim();
+  m.content    = document.getElementById('edit-content').value;
+  m.video_url  = document.getElementById('edit-video').value.trim();
+  m.updated_by = document.getElementById('edit-author').value.trim();
+  m.updated_at = today();
+  await save();
+  closeModal();
+  render();
+}
+
+async function save() {
+  await fetch('/api/manuals', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(_data)
+  });
+}
+
+function today() { return new Date().toISOString().slice(0, 10); }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// オーバーレイ外クリックで閉じる
+document.getElementById('edit-overlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+</script>
+</body>
+</html>
