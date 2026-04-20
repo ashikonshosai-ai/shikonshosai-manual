@@ -448,6 +448,12 @@ async function removeImg(idx) {
 async function onImgFileChange(event) {
   const files = Array.from(event.target.files);
   if (!files.length) return;
+  const MAX_IMAGES = 10;
+  if (_editImages.length + files.length > MAX_IMAGES) {
+    alert(`画像は最大${MAX_IMAGES}枚までです（現在${_editImages.length}枚）`);
+    document.getElementById('edit-img-file').value = '';
+    return;
+  }
   const statusEl = document.getElementById('edit-img-uploading');
   statusEl.textContent = `アップロード中... (0/${files.length})`;
   for (let i = 0; i < files.length; i++) {
