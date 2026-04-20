@@ -12,6 +12,7 @@ DROPBOX_APP_SECRET   = os.environ.get("DROPBOX_APP_SECRET")
 DROPBOX_REFRESH_TOKEN = os.environ.get("DROPBOX_REFRESH_TOKEN")
 MANUALS_PATH  = "/400000_CC/shikonshosai/manuals.json"
 NOTICES_PATH  = "/400000_CC/shikonshosai/notices.json"
+QA_PATH       = "/400000_CC/shikonshosai/qa.json"
 IMAGES_BASE   = "/400000_CC/shikonshosai/manual_images"
 
 def _get_dropbox_client():
@@ -58,6 +59,17 @@ async def get_notices():
 async def save_notices(request: Request):
     data = await request.json()
     await dropbox_save(NOTICES_PATH, data)
+    return {"ok": True}
+
+@app.get("/api/qa")
+async def get_qa():
+    data = await dropbox_get(QA_PATH)
+    return data if data else {"questions": []}
+
+@app.post("/api/qa")
+async def save_qa(request: Request):
+    data = await request.json()
+    await dropbox_save(QA_PATH, data)
     return {"ok": True}
 
 @app.post("/api/manuals/upload_image")

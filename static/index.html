@@ -50,7 +50,8 @@
   .field-select { width: 100%; border: 1.5px solid #e2e8f0; border-radius: 7px; padding: 8px 10px; font-size: 13px; font-family: inherit; margin-bottom: 14px; background: white; }
 
   /* 右ペイン */
-  .right-pane { flex: 1; background: #ffffff; overflow-y: auto; padding: 24px; max-width: 860px; }
+  .right-pane { flex: 1; background: #ffffff; display: flex; flex-direction: column; max-width: 860px; overflow: hidden; }
+  .right-pane-content { flex: 1; overflow-y: auto; padding: 24px; }
   .right-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
   .right-title { font-size: 16px; font-weight: 700; color: #0f172a; }
 
@@ -148,6 +149,27 @@
   /* 検索結果 */
   .search-result-cat { font-size: 11px; background: #f1f5f9; color: #475569; padding: 2px 7px; border-radius: 10px; margin-left: 6px; }
 
+  /* Q&A */
+  .qa-card { border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
+  .qa-card-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 14px 16px; cursor: pointer; background: #f8fafc; gap: 8px; }
+  .qa-card-header:hover { background: #f1f5f9; }
+  .qa-card-title { font-size: 14px; font-weight: 600; color: #0f172a; flex: 1; }
+  .qa-badge-unanswered { font-size: 10px; font-weight: 700; background: #ef4444; color: #fff; padding: 2px 7px; border-radius: 10px; white-space: nowrap; margin-left: 6px; flex-shrink: 0; }
+  .qa-badge-answered { font-size: 10px; font-weight: 700; background: #22c55e; color: #fff; padding: 2px 7px; border-radius: 10px; white-space: nowrap; margin-left: 6px; flex-shrink: 0; }
+  .qa-body { display: none; padding: 16px; border-top: 1px solid #e2e8f0; }
+  .qa-body.open { display: block; }
+  .qa-answer { border-left: 3px solid #3b82f6; padding: 10px 14px; margin-bottom: 10px; background: #f8fafc; border-radius: 0 6px 6px 0; }
+  .qa-answer-content { font-size: 13px; color: #334155; line-height: 1.6; white-space: pre-wrap; }
+  .qa-answer-meta { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+  .qa-reply-form { border-top: 1px solid #e2e8f0; padding-top: 12px; margin-top: 4px; }
+  .qa-reply-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: flex-start; }
+  .qa-reply-name { width: 120px; flex-shrink: 0; border: 1.5px solid #e2e8f0; border-radius: 6px; padding: 7px 8px; font-size: 13px; font-family: inherit; }
+  .qa-reply-name:focus { outline: none; border-color: #3b82f6; }
+  .qa-reply-textarea { flex: 1; border: 1.5px solid #e2e8f0; border-radius: 6px; padding: 7px 8px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 60px; }
+  .qa-reply-textarea:focus { outline: none; border-color: #3b82f6; }
+  .home-qa-card { border: 1px solid #fde68a; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; background: #fffbeb; cursor: pointer; }
+  .home-qa-card:hover { background: #fef3c7; }
+
   /* スマホ対応 */
   @media (max-width: 768px) {
     body { display: block; height: auto; }
@@ -205,7 +227,11 @@
     .layout { flex-direction: column; height: auto; overflow: visible; }
 
     /* 右ペインを全幅に */
-    .right-pane { padding: 12px !important; overflow-y: visible; }
+    .right-pane { overflow: visible !important; }
+    .right-pane-content { padding: 12px !important; overflow-y: visible !important; }
+    .qa-reply-row { flex-direction: column; }
+    .qa-reply-name { width: 100%; }
+    .btn.btn-blue.qa-submit { width: 100%; }
 
     /* 画像を全幅に */
     img { max-width: 100% !important; height: auto !important; }
@@ -232,12 +258,6 @@
   <span class="header-title">事務所マニュアル</span>
 </div>
 
-<!-- 検索バー -->
-<div class="search-bar">
-  <input class="search-input" id="search-input" type="text" placeholder="マニュアルを検索..."
-    oninput="searchManuals(this.value)">
-</div>
-
 <!-- 2カラムレイアウト -->
 <div class="layout">
   <!-- 左ペイン -->
@@ -245,6 +265,10 @@
     <div class="left-pane-nav">
       <div class="nav-label">メニュー</div>
       <div class="nav-item" id="nav-home" onclick="showHome()">🏠 ホーム</div>
+      <div class="nav-item" id="nav-qa" onclick="showQA()">
+        ❓ Q&A
+        <span id="qa-badge" style="display:none; margin-left:auto; font-size:10px; background:#E24B4A; color:white; border-radius:10px; padding:1px 6px;"></span>
+      </div>
     </div>
     <div class="left-pane-list" id="cat-list"></div>
     <div class="left-pane-footer">
@@ -254,24 +278,42 @@
 
   <!-- 右ペイン -->
   <div class="right-pane">
-    <!-- ホームビュー -->
-    <div id="home-view"></div>
-
-    <!-- カテゴリビュー -->
-    <div id="category-view" style="display:none">
-      <div class="right-header">
-        <div class="right-title" id="right-title">カテゴリを選択してください</div>
-        <button class="btn btn-blue" id="btn-add-manual" style="display:none" onclick="addManual()">＋ マニュアル追加</button>
-      </div>
-      <div id="manual-list"></div>
+    <!-- 検索バー（右ペイン内） -->
+    <div class="search-bar">
+      <input class="search-input" id="search-input" type="text" placeholder="マニュアルを検索..."
+        oninput="searchManuals(this.value)">
     </div>
 
-    <!-- 検索ビュー -->
-    <div id="search-view" style="display:none">
-      <div class="right-header">
-        <div class="right-title" id="search-title">検索結果</div>
+    <!-- コンテンツエリア -->
+    <div class="right-pane-content">
+      <!-- ホームビュー -->
+      <div id="home-view"></div>
+
+      <!-- カテゴリビュー -->
+      <div id="category-view" style="display:none">
+        <div class="right-header">
+          <div class="right-title" id="right-title">カテゴリを選択してください</div>
+          <button class="btn btn-blue" id="btn-add-manual" style="display:none" onclick="addManual()">＋ マニュアル追加</button>
+        </div>
+        <div id="manual-list"></div>
       </div>
-      <div id="search-results"></div>
+
+      <!-- 検索ビュー -->
+      <div id="search-view" style="display:none">
+        <div class="right-header">
+          <div class="right-title" id="search-title">検索結果</div>
+        </div>
+        <div id="search-results"></div>
+      </div>
+
+      <!-- Q&Aビュー -->
+      <div id="qa-view" style="display:none">
+        <div class="right-header">
+          <div class="right-title">Q&amp;A</div>
+          <button class="btn btn-blue" onclick="addQuestion()">＋ 質問する</button>
+        </div>
+        <div id="qa-list"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -310,8 +352,10 @@
 <script>
 let _data = { categories: [] };
 let _noticesData = { notices: [] };
+let _qaData = { questions: [] };
 let _selCatId = null;
-let _viewMode = 'home'; // 'home' | 'category' | 'search'
+let _viewMode = 'home'; // 'home' | 'category' | 'search' | 'qa'
+let _openQId = null;
 let _editCatId = null, _editManualId = null;
 let _editImages = []; // { path, caption, url }
 let quillInstance = null;
@@ -350,7 +394,9 @@ function setView(mode) {
   document.getElementById('home-view').style.display     = mode === 'home'     ? 'block' : 'none';
   document.getElementById('category-view').style.display = mode === 'category' ? 'block' : 'none';
   document.getElementById('search-view').style.display   = mode === 'search'   ? 'block' : 'none';
+  document.getElementById('qa-view').style.display       = mode === 'qa'       ? 'block' : 'none';
   document.getElementById('nav-home').classList.toggle('active', mode === 'home');
+  document.getElementById('nav-qa').classList.toggle('active', mode === 'qa');
 }
 
 function render() {
@@ -522,9 +568,12 @@ async function deleteManual(catId, manualId) {
 
 // ── ホーム ──────────────────────────────────────────
 async function showHome() {
-  const res = await fetch('/api/notices');
-  _noticesData = await res.json();
+  const [noticesRes, qaRes] = await Promise.all([fetch('/api/notices'), fetch('/api/qa')]);
+  _noticesData = await noticesRes.json();
+  _qaData = await qaRes.json();
   if (!_noticesData.notices) _noticesData.notices = [];
+  if (!_qaData.questions) _qaData.questions = [];
+  updateQaBadge();
   setView('home');
   render();
   renderHome();
@@ -561,7 +610,24 @@ function renderHome() {
         <div class="update-date">${m.updated_at || ''}${m.updated_by ? ' / ' + esc(m.updated_by) : ''}</div>
       </div>`).join('')}</div>`;
 
+  // 未回答質問（最大3件）
+  const unanswered = (_qaData.questions || []).filter(q => !q.answers || q.answers.length === 0).slice(0, 3);
+  const qaHtml = unanswered.length === 0 ? '' : `
+    <div style="margin-bottom:24px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="home-section-title" style="margin-bottom:0;border-bottom:none">❓ 未回答の質問</div>
+        <button class="btn btn-gray" style="font-size:12px;padding:5px 10px" onclick="showQA()">Q&amp;A一覧</button>
+      </div>
+      <div style="border-bottom:1px solid #e2e8f0;margin-bottom:10px"></div>
+      ${unanswered.map(q => `
+        <div class="home-qa-card" onclick="showQA('${q.id}')">
+          <div style="font-size:13px;font-weight:600;color:#92400e;margin-bottom:3px">${esc(q.title)}</div>
+          <div style="font-size:11px;color:#a16207">${esc(q.author || '')}${q.author && q.created_at ? ' · ' : ''}${q.created_at || ''}</div>
+        </div>`).join('')}
+    </div>`;
+
   el.innerHTML = `
+    ${qaHtml}
     <div style="margin-bottom:24px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div class="home-section-title" style="margin-bottom:0;border-bottom:none">📢 お知らせ</div>
@@ -615,6 +681,131 @@ async function saveNotices() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(_noticesData)
+  });
+}
+
+// ── Q&A ──────────────────────────────────────────
+async function showQA(openId) {
+  const res = await fetch('/api/qa');
+  _qaData = await res.json();
+  if (!_qaData.questions) _qaData.questions = [];
+  if (openId) _openQId = openId;
+  updateQaBadge();
+  setView('qa');
+  render();
+  renderQA();
+}
+
+function updateQaBadge() {
+  const unanswered = (_qaData.questions || []).filter(q => !q.answers || q.answers.length === 0).length;
+  const badge = document.getElementById('qa-badge');
+  if (badge) {
+    badge.textContent = unanswered;
+    badge.style.display = unanswered > 0 ? 'inline' : 'none';
+  }
+}
+
+function renderQA() {
+  const list = document.getElementById('qa-list');
+  list.innerHTML = '';
+  if (!_qaData.questions || _qaData.questions.length === 0) {
+    list.innerHTML = '<div class="empty">質問はありません</div>';
+    return;
+  }
+  _qaData.questions.forEach(q => {
+    const ansCount = (q.answers || []).length;
+    const card = document.createElement('div');
+    card.className = 'qa-card';
+    const bodyId = 'qa-body-' + q.id;
+    const answersHtml = (q.answers || []).map(a => `
+      <div class="qa-answer">
+        <div class="qa-answer-content">${esc(a.content)}</div>
+        <div class="qa-answer-meta">${esc(a.author || '')}${a.author && a.created_at ? ' · ' : ''}${a.created_at || ''}</div>
+      </div>`).join('');
+    card.innerHTML = `
+      <div class="qa-card-header" onclick="toggleQA('${q.id}')">
+        <div style="display:flex;align-items:center;min-width:0;flex:1;flex-wrap:wrap;gap:4px">
+          <span class="qa-card-title">${esc(q.title)}</span>
+          ${ansCount === 0
+            ? '<span class="qa-badge-unanswered">未回答</span>'
+            : `<span class="qa-badge-answered">回答${ansCount}件</span>`}
+        </div>
+        <span class="card-meta" style="flex-shrink:0">${esc(q.author || '')}${q.author && q.created_at ? ' · ' : ''}${q.created_at || ''}</span>
+      </div>
+      <div class="qa-body" id="${bodyId}">
+        ${answersHtml}
+        <div class="qa-reply-form">
+          <div class="qa-reply-row">
+            <input class="qa-reply-name" id="qa-name-${q.id}" type="text" placeholder="名前">
+            <textarea class="qa-reply-textarea" id="qa-content-${q.id}" placeholder="回答を入力..."></textarea>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <button class="btn-text-red" onclick="deleteQuestion('${q.id}')">質問を削除</button>
+            <button class="btn btn-blue qa-submit" onclick="submitAnswer('${q.id}')">回答する</button>
+          </div>
+        </div>
+      </div>`;
+    list.appendChild(card);
+  });
+  if (_openQId) {
+    const body = document.getElementById('qa-body-' + _openQId);
+    if (body) body.classList.add('open');
+  }
+}
+
+function toggleQA(id) {
+  const body = document.getElementById('qa-body-' + id);
+  if (!body) return;
+  const wasOpen = body.classList.contains('open');
+  document.querySelectorAll('.qa-body.open').forEach(el => el.classList.remove('open'));
+  if (!wasOpen) { body.classList.add('open'); _openQId = id; }
+  else _openQId = null;
+}
+
+async function addQuestion() {
+  const title = prompt('質問のタイトルを入力してください');
+  if (!title || !title.trim()) return;
+  const author = prompt('投稿者名（任意）', '') || '';
+  if (!_qaData.questions) _qaData.questions = [];
+  _qaData.questions.unshift({ id: 'q_' + Date.now(), title: title.trim(), author: author.trim(), created_at: today(), answers: [] });
+  await saveQA();
+  renderQA();
+  updateQaBadge();
+}
+
+async function submitAnswer(qId) {
+  const nameEl = document.getElementById('qa-name-' + qId);
+  const contentEl = document.getElementById('qa-content-' + qId);
+  if (!nameEl || !contentEl) return;
+  const name = nameEl.value.trim();
+  const content = contentEl.value.trim();
+  if (!name || !content) { alert('名前と回答内容を入力してください'); return; }
+  const q = _qaData.questions.find(x => x.id === qId);
+  if (!q) return;
+  if (!q.answers) q.answers = [];
+  q.answers.push({ id: 'a_' + Date.now(), content, author: name, created_at: today() });
+  _openQId = qId;
+  await saveQA();
+  renderQA();
+  updateQaBadge();
+}
+
+async function deleteQuestion(qId) {
+  const q = _qaData.questions.find(x => x.id === qId);
+  if (!q) return;
+  if (!confirm(`「${q.title}」を削除しますか？`)) return;
+  _qaData.questions = _qaData.questions.filter(x => x.id !== qId);
+  if (_openQId === qId) _openQId = null;
+  await saveQA();
+  renderQA();
+  updateQaBadge();
+}
+
+async function saveQA() {
+  await fetch('/api/qa', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(_qaData)
   });
 }
 
