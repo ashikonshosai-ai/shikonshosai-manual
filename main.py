@@ -5,15 +5,27 @@ from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
 
-DROPBOX_TOKEN = os.environ.get("DROPBOX_TOKEN")
+DROPBOX_APP_KEY      = os.environ.get("DROPBOX_APP_KEY")
+DROPBOX_APP_SECRET   = os.environ.get("DROPBOX_APP_SECRET")
+DROPBOX_REFRESH_TOKEN = os.environ.get("DROPBOX_REFRESH_TOKEN")
 MANUALS_PATH = "/400000_CC/shikonshosai/manuals.json"
 
+async def get_dropbox_token():
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            "https://api.dropbox.com/oauth2/token",
+            data={"grant_type": "refresh_token", "refresh_token": DROPBOX_REFRESH_TOKEN},
+            auth=(DROPBOX_APP_KEY, DROPBOX_APP_SECRET)
+        )
+        return r.json()["access_token"]
+
 async def dropbox_get(path: str):
+    token = await get_dropbox_token()
     async with httpx.AsyncClient() as client:
         r = await client.post(
             "https://api.dropboxapi.com/2/files/download",
             headers={
-                "Authorization": f"Bearer {DROPBOX_TOKEN}",
+                "Authorization": f"Bearer {token}",
                 "Dropbox-API-Arg": json.dumps({"path": path})
             }
         )
@@ -22,12 +34,13 @@ async def dropbox_get(path: str):
         return None
 
 async def dropbox_save(path: str, data: dict):
+    token = await get_dropbox_token()
     content = json.dumps(data, ensure_ascii=False, indent=2).encode()
     async with httpx.AsyncClient() as client:
         await client.post(
             "https://api.dropboxapi.com/2/files/upload",
             headers={
-                "Authorization": f"Bearer {DROPBOX_TOKEN}",
+                "Authorization": f"Bearer {token}",
                 "Dropbox-API-Arg": json.dumps({
                     "path": path,
                     "mode": "overwrite",
