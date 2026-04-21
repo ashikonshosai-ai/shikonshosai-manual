@@ -894,13 +894,17 @@ async def get_freee_token() -> str:
         r = await client.post(
             "https://accounts.secure.freee.co.jp/public_api/token",
             data={
-                "grant_type": "refresh_token",
-                "refresh_token": FREEE_REFRESH_TOKEN,
-                "client_id": FREEE_CLIENT_ID,
+                "grant_type":    "refresh_token",
+                "client_id":     FREEE_CLIENT_ID,
                 "client_secret": FREEE_CLIENT_SECRET,
+                "refresh_token": FREEE_REFRESH_TOKEN,
             }
         )
-        return r.json()["access_token"]
+        print(f"[freee token] status={r.status_code} body={r.text[:200]}")
+        data = r.json()
+        if "access_token" not in data:
+            raise HTTPException(status_code=500, detail=f"freeeトークン取得失敗: {data}")
+        return data["access_token"]
 
 @app.post("/api/invoices/freee/{year_month}")
 async def register_to_freee(year_month: str, request: Request):
