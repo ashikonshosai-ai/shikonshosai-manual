@@ -1262,7 +1262,12 @@ async function doLogin() {
   }
 }
 
-function doLogout() {
+async function doLogout() {
+  await fetch('/api/auth/logout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: _currentUser?.id })
+  });
   localStorage.removeItem('manual_user');
   sessionStorage.removeItem('manual_session_pw');
   _currentUser = null;

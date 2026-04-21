@@ -211,6 +211,22 @@ async def change_password(request: Request):
     await dropbox_save(USERS_PATH, data)
     return {"ok": True}
 
+@app.post("/api/auth/logout")
+async def auth_logout(request: Request):
+    body = await request.json()
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400)
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    for u in users_data.get("users", []):
+        if u.get("id") == user_id:
+            u["last_login"] = ""
+            break
+    await dropbox_save(USERS_PATH, users_data)
+    return {"ok": True}
+
 @app.post("/api/auth/ping")
 async def auth_ping(request: Request):
     body = await request.json()
