@@ -347,16 +347,17 @@
     <div class="left-pane-nav">
       <div class="nav-label">メニュー</div>
       <div class="nav-item" id="nav-home" onclick="showHome()">🏠 ホーム</div>
+      <div class="nav-item" id="nav-report" onclick="showReport()">📋 日報</div>
+      <div class="nav-item" id="nav-invoice" onclick="showInvoice()">📄 請求書</div>
+      <div class="nav-item" id="nav-invoice-admin" style="display:none" onclick="showInvoiceAdmin()">📋 請求書管理</div>
       <div class="nav-item" id="nav-qa" onclick="showQA()">
         ❓ Q&A
         <span id="qa-badge" style="display:none; margin-left:auto; font-size:10px; background:#E24B4A; color:white; border-radius:10px; padding:1px 6px;"></span>
       </div>
-      <div class="nav-item" id="nav-report" onclick="showReport()">📋 日報</div>
       <div class="nav-item" id="nav-profile" onclick="showProfile()">👤 マイプロフィール</div>
-      <div class="nav-item" id="nav-invoice" onclick="showInvoice()">📄 請求書</div>
-      <div class="nav-item" id="nav-invoice-admin" style="display:none" onclick="showInvoiceAdmin()">📋 請求書管理</div>
       <div class="nav-item" id="nav-user-mgmt" style="display:none" onclick="showUserMgmt()">⚙ ユーザー管理</div>
     </div>
+    <div class="nav-label" style="padding: 8px 16px 4px;">マニュアル</div>
     <div class="left-pane-list" id="cat-list"></div>
     <div class="left-pane-footer">
       <button class="btn-add" onclick="addCategory()">＋ カテゴリ追加</button>
