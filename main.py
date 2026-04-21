@@ -285,14 +285,14 @@ async def auth_ping(request: Request):
 @app.get("/api/reports/excel/{year_month}")
 async def download_reports_excel(
     year_month: str,
-    user_id: str = Header(None),
-    user_id_query: str = Query(None, alias="user_id")
+    user_id: str = Query(None)
 ):
-    uid = user_id or user_id_query
+    if not user_id:
+        raise HTTPException(status_code=401)
     users_data = await dropbox_get(USERS_PATH)
     if not users_data:
         raise HTTPException(status_code=500)
-    current_user = next((u for u in users_data.get("users", []) if u.get("id") == uid), None)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
     if not current_user or current_user.get("role", "staff") == "staff":
         raise HTTPException(status_code=403)
 

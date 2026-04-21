@@ -1794,7 +1794,8 @@ async function fetchGroupReports(yearMonth) {
 }
 
 function downloadGroupExcel() {
-  window.location.href = `/api/reports/excel/${_currentReportMonth}?user_id=${encodeURIComponent(_currentUser?.id || '')}`;
+  const url = `/api/reports/excel/${_currentReportMonth}?user_id=${encodeURIComponent(_currentUser?.id || '')}`;
+  window.open(url, '_blank');
 }
 
 function refreshGroupReport() {
