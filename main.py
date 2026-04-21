@@ -1,4 +1,4 @@
-import os, json, httpx
+import os, json, httpx, asyncio
 from datetime import date
 import dropbox
 from dropbox.exceptions import ApiError as DropboxApiError
@@ -107,22 +107,20 @@ async def get_all_reports(year_month: str, user_id: str = Header(None)):
         raise HTTPException(status_code=401)
     role = current_user.get("role", "staff")
     if role == "admin":
-        target_ids = [u["id"] for u in users_data["users"]]
+        target_users = users_data["users"]
     elif role == "leader":
         my_group = current_user.get("group", "")
-        target_ids = [u["id"] for u in users_data["users"] if u.get("group") == my_group]
+        target_users = [u for u in users_data["users"] if u.get("group") == my_group]
     else:
         raise HTTPException(status_code=403)
-    results = {}
-    for uid in target_ids:
-        path = f"{REPORTS_BASE}/{uid}_{year_month}.json"
+
+    async def fetch_report(user):
+        path = f"{REPORTS_BASE}/{user['id']}_{year_month}.json"
         data = await dropbox_get(path)
-        if data:
-            user = next((u for u in users_data["users"] if u["id"] == uid), None)
-            results[uid] = {
-                "user_name": user["name"] if user else uid,
-                "entries": data.get("entries", [])
-            }
+        return user["id"], user.get("name", user["id"]), (data or {}).get("entries", [])
+
+    results_list = await asyncio.gather(*[fetch_report(u) for u in target_users])
+    results = {uid: {"user_name": uname, "entries": entries} for uid, uname, entries in results_list if entries}
     return results
 
 @app.get("/api/reports/{user_id}/{year_month}")
