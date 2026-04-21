@@ -20,6 +20,7 @@ USERS_PATH    = "/400000_CC/shikonshosai/users.json"
 IMAGES_BASE   = "/400000_CC/shikonshosai/manual_images"
 REPORTS_BASE  = "/外注先共有/400000_CC/shikonshosai/reports"
 INVOICES_PATH = "/外注先共有/400000_CC/shikonshosai/invoices.json"
+PLEDGES_PATH = "/外注先共有/400000_CC/shikonshosai/pledges.json"
 
 _cache: dict = {}
 _CACHE_TTL = 60
@@ -733,5 +734,52 @@ async def get_invoice_data(user_id: str, year_month: str):
     total_hours = sum(companies.values())
     return {"items": items, "total_hours": round(total_hours * 100) / 100,
             "total_hours_display": to_hhmm(total_hours)}
+
+@app.get("/api/pledges")
+async def get_pledges(user_id: str = Header(None)):
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+    if not current_user:
+        raise HTTPException(status_code=401)
+    role = current_user.get("role", "staff")
+    data = await dropbox_get(PLEDGES_PATH) or {"pledges": []}
+    pledges = data.get("pledges", [])
+    if role == "staff":
+        pledges = [p for p in pledges if p.get("user_id") == user_id]
+    return {"pledges": pledges}
+
+
+@app.post("/api/pledges/submit")
+async def submit_pledge(request: Request):
+    body = await request.json()
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401)
+    year_month = body.get("year_month", "")
+    data = await dropbox_get(PLEDGES_PATH) or {"pledges": []}
+    data["pledges"] = [p for p in data.get("pledges", [])
+                       if not (p.get("user_id") == user_id and p.get("year_month") == year_month)]
+    new_pledge = {
+        "id": f"pl_{int(time.time())}",
+        "user_id": user_id,
+        "user_name": body.get("user_name", ""),
+        "year_month": year_month,
+        "submitted_at": date.today().isoformat(),
+        "checklist": body.get("checklist", []),
+    }
+    data["pledges"].append(new_pledge)
+    await dropbox_save(PLEDGES_PATH, data)
+    return {"ok": True, "pledge": new_pledge}
+
+
+@app.get("/api/pledges/my/{user_id}/{year_month}")
+async def get_my_pledge(user_id: str, year_month: str):
+    data = await dropbox_get(PLEDGES_PATH) or {"pledges": []}
+    pledge = next((p for p in data.get("pledges", [])
+                   if p.get("user_id") == user_id and p.get("year_month") == year_month), None)
+    return pledge or {}
+
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
