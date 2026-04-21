@@ -349,6 +349,7 @@
       <div class="nav-item" id="nav-home" onclick="showHome()">🏠 ホーム</div>
       <div class="nav-item" id="nav-report" onclick="showReport()">📋 日報</div>
       <div class="nav-item" id="nav-invoice" onclick="showInvoice()">📄 請求書</div>
+      <div class="nav-item" id="nav-pledge" onclick="showPledge()">📝 誓約書</div>
       <div class="nav-item" id="nav-invoice-admin" style="display:none" onclick="showInvoiceAdmin()">📋 請求書管理</div>
       <div class="nav-item" id="nav-qa" onclick="showQA()">
         ❓ Q&A
@@ -356,7 +357,6 @@
       </div>
       <div class="nav-item" id="nav-profile" onclick="showProfile()">👤 マイプロフィール</div>
       <div class="nav-item" id="nav-user-mgmt" style="display:none" onclick="showUserMgmt()">⚙ ユーザー管理</div>
-      <div class="nav-item" id="nav-pledge" onclick="showPledge()">📝 誓約書</div>
     </div>
     <div class="nav-label" style="padding: 8px 16px 4px;">マニュアル</div>
     <div class="left-pane-list" id="cat-list"></div>
@@ -668,14 +668,16 @@
     </div>
   </div>
 
-  <!-- 管理者・リーダー向け提出一覧 -->
+  <!-- 管理者・リーダー・総務向け提出一覧 -->
   <div id="pledge-admin-section" style="display:none; margin-top:24px; border-top:1px solid #e2e8f0; padding-top:20px;">
     <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
       <div style="font-size:13px; font-weight:700; color:#0f172a;">提出一覧</div>
+      <div id="pledge-admin-summary" style="display:flex; gap:6px; font-size:12px;"></div>
       <div style="display:flex; align-items:center; gap:4px; margin-left:auto;">
         <button class="btn btn-gray" style="padding:3px 8px;" onclick="prevPledgeAdminMonth()">◀</button>
         <span id="pledge-admin-month-label" style="font-size:12px; font-weight:600; min-width:72px; text-align:center;"></span>
         <button class="btn btn-gray" style="padding:3px 8px;" onclick="nextPledgeAdminMonth()">▶</button>
+        <button id="btn-pledges-zip" class="btn btn-gray" style="display:none; padding:3px 10px; font-size:12px;" onclick="downloadPledgesZip()">📥 PDF一括DL</button>
       </div>
     </div>
     <div id="pledge-admin-list"></div>
@@ -897,7 +899,7 @@ function render() {
   const navUM = document.getElementById('nav-user-mgmt');
   if (navUM) navUM.style.display = (_currentUser?.role === 'admin') ? 'flex' : 'none';
   const navIA = document.getElementById('nav-invoice-admin');
-  if (navIA) navIA.style.display = (['admin','leader'].includes(_currentUser?.role)) ? 'flex' : 'none';
+  if (navIA) navIA.style.display = (['admin','leader','soumu'].includes(_currentUser?.role)) ? 'flex' : 'none';
   // 左ペイン
   const catList = document.getElementById('cat-list');
   catList.innerHTML = '';
@@ -2078,11 +2080,11 @@ async function showInvoiceAdmin() {
 async function loadInvoiceAdmin() {
   const [y, m] = _invoiceAdminMonth.split('-');
   document.getElementById('invoice-admin-month-label').textContent = `${y}年${parseInt(m)}月`;
-  const isAdmin = _currentUser?.role === 'admin';
+  const canDownload = ['admin', 'soumu'].includes(_currentUser?.role);
   const excelBtn = document.getElementById('btn-invoices-excel');
-  if (excelBtn) excelBtn.style.display = isAdmin ? 'inline-block' : 'none';
+  if (excelBtn) excelBtn.style.display = canDownload ? 'inline-block' : 'none';
   const zipBtn = document.getElementById('btn-invoices-zip');
-  if (zipBtn) zipBtn.style.display = isAdmin ? 'inline-block' : 'none';
+  if (zipBtn) zipBtn.style.display = canDownload ? 'inline-block' : 'none';
   const listEl = document.getElementById('invoice-admin-list');
   listEl.innerHTML = '<div style="padding:20px; text-align:center; color:#94a3b8;">読み込み中...</div>';
   try {
@@ -2110,12 +2112,13 @@ function renderInvoiceAdmin() {
     if (s === 'rejected') return '<span style="padding:2px 8px; background:#fee2e2; color:#991b1b; border-radius:10px; font-size:11px; font-weight:600;">❌ 差し戻し</span>';
     return '-';
   };
+  const canApprove = !['soumu'].includes(_currentUser?.role);
   const rows = _invoiceAdminData.map(inv => {
     const memo = inv.status === 'rejected' ? esc(inv.reject_reason || '') : (inv.status === 'approved' ? esc(inv.approved_by || '') : '');
-    const approveBtn = inv.status !== 'approved'
+    const approveBtn = canApprove && inv.status !== 'approved'
       ? `<button onclick="approveInvoice('${inv.id}')" style="padding:3px 10px; font-size:12px; background:#dcfce7; border:1px solid #86efac; border-radius:5px; cursor:pointer; margin-right:4px; color:#166534;">✅ 承認</button>`
       : '';
-    const rejectBtn = inv.status !== 'rejected'
+    const rejectBtn = canApprove && inv.status !== 'rejected'
       ? `<button onclick="rejectInvoice('${inv.id}')" style="padding:3px 10px; font-size:12px; background:#fee2e2; border:1px solid #fca5a5; border-radius:5px; cursor:pointer; color:#991b1b;">❌ 差し戻し</button>`
       : '';
     return `<tr>
@@ -2309,7 +2312,7 @@ function renderUserMgmt() {
         <div style="flex:1;">
           <div style="font-size:14px;font-weight:600;color:#0f172a;">${esc(u.name)}</div>
           <div style="font-size:12px;color:#64748b;">${esc(u.email)}</div>
-          <div style="font-size:11px;color:#94a3b8;">${u.role === 'admin' ? '管理者' : u.role === 'leader' ? 'リーダー' : 'スタッフ'}${u.group ? ' / グループ' + esc(u.group) : ''}</div>
+          <div style="font-size:11px;color:#94a3b8;">${u.role === 'admin' ? '管理者' : u.role === 'leader' ? 'リーダー' : u.role === 'soumu' ? '総務' : 'スタッフ'}${u.group ? ' / グループ' + esc(u.group) : ''}</div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
           <button class="btn btn-gray" onclick="editUserName(${idx})">名前変更</button>
@@ -2333,8 +2336,8 @@ async function addUser() {
   if (!name || !name.trim()) return;
   const email = prompt('Gmailアドレスを入力してください');
   if (!email || !email.trim()) return;
-  const roleStr = prompt('役割を入力してください（admin / leader / staff）', 'staff');
-  const role = ['admin', 'leader', 'staff'].includes(roleStr) ? roleStr : 'staff';
+  const roleStr = prompt('役割を入力してください（admin / leader / staff / soumu）', 'staff');
+  const role = ['admin', 'leader', 'staff', 'soumu'].includes(roleStr) ? roleStr : 'staff';
   const group = prompt('グループを入力してください（A〜D、空でも可）', '') || '';
   _usersData.users = _usersData.users || [];
   _usersData.users.push({ id: 'u_' + Date.now(), name: name.trim(), email: email.trim(), role, group, photo: '' });
@@ -2345,8 +2348,8 @@ async function addUser() {
 async function editUserRole(idx) {
   const u = (_usersData.users || [])[idx];
   if (!u) return;
-  const roleStr = prompt('新しい役割を入力してください（admin / leader / staff）', u.role);
-  if (!roleStr || !['admin', 'leader', 'staff'].includes(roleStr)) return;
+  const roleStr = prompt('新しい役割を入力してください（admin / leader / staff / soumu）', u.role);
+  if (!roleStr || !['admin', 'leader', 'staff', 'soumu'].includes(roleStr)) return;
   if (roleStr === u.role) return;
   _usersData.users[idx].role = roleStr;
   await saveUsers();
@@ -2936,7 +2939,7 @@ async function loadPledge() {
   updatePledgeStatusBadge();
   const role = _currentUser?.role;
   const adminSection = document.getElementById('pledge-admin-section');
-  if (role === 'admin' || role === 'leader') {
+  if (role === 'admin' || role === 'leader' || role === 'soumu') {
     adminSection.style.display = 'block';
     await loadPledgeAdmin();
   } else {
@@ -3052,30 +3055,54 @@ function nextPledgeMonth() {
 async function loadPledgeAdmin() {
   const [y, m] = _pledgeAdminMonth.split('-');
   document.getElementById('pledge-admin-month-label').textContent = `${y}年${parseInt(m)}月`;
+  const role = _currentUser?.role;
+  const zipBtn = document.getElementById('btn-pledges-zip');
+  if (zipBtn) zipBtn.style.display = ['admin', 'soumu'].includes(role) ? 'inline-block' : 'none';
   const listEl = document.getElementById('pledge-admin-list');
   listEl.innerHTML = '<div style="padding:12px; text-align:center; color:#94a3b8; font-size:13px;">読み込み中...</div>';
   try {
-    const r = await fetch('/api/pledges', { headers: { 'user-id': _currentUser?.id || '' } });
-    if (!r.ok) throw new Error();
-    const d = await r.json();
-    _pledgeAdminData = (d.pledges || []).filter(p => p.year_month === _pledgeAdminMonth);
-    renderPledgeAdmin();
+    const [pledgesRes, usersRes] = await Promise.all([
+      fetch('/api/pledges', { headers: { 'user-id': _currentUser?.id || '' } }),
+      fetch('/api/users', { headers: { 'user-id': _currentUser?.id || '' } })
+    ]);
+    if (!pledgesRes.ok) throw new Error();
+    const pd = await pledgesRes.json();
+    _pledgeAdminData = (pd.pledges || []).filter(p => p.year_month === _pledgeAdminMonth);
+    let allUsers = [];
+    if (usersRes.ok) {
+      const ud = await usersRes.json();
+      allUsers = (ud.users || []).filter(u => u.role === 'staff');
+    }
+    renderPledgeAdmin(allUsers);
   } catch {
     listEl.innerHTML = '<div style="padding:12px; text-align:center; color:#f87171; font-size:13px;">取得に失敗しました</div>';
   }
 }
 
-function renderPledgeAdmin() {
+function renderPledgeAdmin(allUsers) {
   const listEl = document.getElementById('pledge-admin-list');
-  if (_pledgeAdminData.length === 0) {
+  const summaryEl = document.getElementById('pledge-admin-summary');
+  const submittedIds = new Set(_pledgeAdminData.map(p => p.user_id));
+  const notSubmitted = allUsers.filter(u => !submittedIds.has(u.id));
+  if (summaryEl) {
+    summaryEl.innerHTML = `<span style="padding:2px 8px; background:#dcfce7; color:#166534; border-radius:10px; font-weight:600;">✅ 提出済み ${_pledgeAdminData.length}名</span>`
+      + (notSubmitted.length > 0 ? `<span style="padding:2px 8px; background:#fee2e2; color:#991b1b; border-radius:10px; font-weight:600;">⏳ 未提出 ${notSubmitted.length}名</span>` : '');
+  }
+  if (_pledgeAdminData.length === 0 && notSubmitted.length === 0) {
     listEl.innerHTML = '<div style="padding:12px; text-align:center; color:#94a3b8; font-size:13px;">まだ提出がありません</div>';
     return;
   }
-  const rows = _pledgeAdminData.map(p => `
+  const submittedRows = _pledgeAdminData.map(p => `
     <tr>
       <td style="padding:8px 12px; font-weight:500;">${esc(p.user_name || p.user_id)}</td>
       <td style="padding:8px 12px; color:#64748b; font-size:12px;">${esc(p.submitted_at || '-')}</td>
       <td style="padding:8px 12px;"><span style="padding:2px 8px; background:#dcfce7; color:#166534; border-radius:10px; font-size:11px; font-weight:600;">✅ 提出済み</span></td>
+    </tr>`).join('');
+  const notSubmittedRows = notSubmitted.map(u => `
+    <tr>
+      <td style="padding:8px 12px; font-weight:500; color:#94a3b8;">${esc(u.name || u.id)}</td>
+      <td style="padding:8px 12px; color:#94a3b8; font-size:12px;">-</td>
+      <td style="padding:8px 12px;"><span style="padding:2px 8px; background:#fee2e2; color:#991b1b; border-radius:10px; font-size:11px; font-weight:600;">⏳ 未提出</span></td>
     </tr>`).join('');
   listEl.innerHTML = `<div style="overflow-x:auto;">
     <table style="width:100%; border-collapse:collapse; font-size:13px;">
@@ -3086,9 +3113,19 @@ function renderPledgeAdmin() {
           <th style="padding:7px 12px; text-align:left; font-weight:600; color:#475569;">ステータス</th>
         </tr>
       </thead>
-      <tbody>${rows}</tbody>
+      <tbody>${submittedRows}${notSubmittedRows}</tbody>
     </table>
   </div>`;
+}
+
+async function downloadPledgesZip() {
+  const r = await fetch(`/api/pledges/zip/${_pledgeAdminMonth}?user_id=${encodeURIComponent(_currentUser?.id || '')}`);
+  if (!r.ok) { alert('ZIPの生成に失敗しました'); return; }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `pledges_${_pledgeAdminMonth}.zip`; a.click();
+  URL.revokeObjectURL(url);
 }
 
 function prevPledgeAdminMonth() {
