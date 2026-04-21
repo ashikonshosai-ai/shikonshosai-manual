@@ -15,6 +15,7 @@ NOTICES_PATH  = "/400000_CC/shikonshosai/notices.json"
 QA_PATH       = "/400000_CC/shikonshosai/qa.json"
 USERS_PATH    = "/400000_CC/shikonshosai/users.json"
 IMAGES_BASE   = "/400000_CC/shikonshosai/manual_images"
+REPORTS_BASE  = "/400000_CC/shikonshosai/reports"
 
 def _get_dropbox_client():
     return dropbox.Dropbox(
@@ -93,6 +94,40 @@ async def delete_image(request: Request):
     body = await request.json()
     dbx = _get_dropbox_client()
     dbx.files_delete_v2(body["path"])
+    return {"ok": True}
+
+@app.get("/api/reports/all/{year_month}")
+async def get_all_reports(year_month: str):
+    try:
+        dbx = _get_dropbox_client()
+        result = dbx.files_list_folder(REPORTS_BASE)
+        suffix = f"_{year_month}.json"
+        all_reports = {}
+        for entry in result.entries:
+            if hasattr(entry, "name") and entry.name.endswith(suffix):
+                user_id = entry.name[: -len(suffix)]
+                try:
+                    _, res = dbx.files_download(entry.path_lower)
+                    all_reports[user_id] = json.loads(res.content)
+                except Exception:
+                    pass
+        return all_reports
+    except DropboxApiError as e:
+        if e.error.is_path() and e.error.get_path().is_not_found():
+            return {}
+        raise
+
+@app.get("/api/reports/{user_id}/{year_month}")
+async def get_report(user_id: str, year_month: str):
+    path = f"{REPORTS_BASE}/{user_id}_{year_month}.json"
+    data = await dropbox_get(path)
+    return data if data else {"entries": []}
+
+@app.post("/api/reports/{user_id}/{year_month}")
+async def save_report(user_id: str, year_month: str, request: Request):
+    data = await request.json()
+    path = f"{REPORTS_BASE}/{user_id}_{year_month}.json"
+    await dropbox_save(path, data)
     return {"ok": True}
 
 @app.on_event("startup")

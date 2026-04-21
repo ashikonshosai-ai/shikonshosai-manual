@@ -177,6 +177,15 @@
   .user-mgmt-item { display:flex; align-items:center; gap:12px; padding:10px 14px; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px; background:#fff; }
   .user-avatar-sm { width:36px; height:36px; border-radius:50%; background:#93c5fd; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:500; color:#1e3a5f; overflow:hidden; flex-shrink:0; }
 
+  /* 日報 */
+  #report-table th { padding:8px 10px; text-align:left; white-space:nowrap; font-weight:600; color:#475569; border-bottom:2px solid #e2e8f0; background:#f8fafc; }
+  #report-table td { padding:8px 10px; border-bottom:1px solid #f1f5f9; }
+  #report-table tbody tr:hover { background:#f8fafc; }
+  @media (max-width: 768px) {
+    #report-input-row td { display:block; padding:4px 8px !important; }
+    #report-input-row td input { width:100% !important; box-sizing:border-box; }
+  }
+
   /* スマホ対応 */
   @media (max-width: 768px) {
     #login-screen > div { width: 90% !important; padding: 24px !important; }
@@ -316,6 +325,7 @@
         ❓ Q&A
         <span id="qa-badge" style="display:none; margin-left:auto; font-size:10px; background:#E24B4A; color:white; border-radius:10px; padding:1px 6px;"></span>
       </div>
+      <div class="nav-item" id="nav-report" onclick="showReport()">📋 日報</div>
       <div class="nav-item" id="nav-user-mgmt" style="display:none" onclick="showUserMgmt()">⚙ ユーザー管理</div>
     </div>
     <div class="left-pane-list" id="cat-list"></div>
@@ -375,6 +385,43 @@
         </div>
         <div id="user-mgmt-list"></div>
       </div>
+
+      <!-- 日報ビュー -->
+      <div id="report-view" style="display:none">
+        <div class="right-header" style="flex-wrap:wrap; gap:8px; align-items:center;">
+          <div class="right-title" id="report-title">日報</div>
+          <select id="report-user-select" style="display:none; padding:6px 8px; border:1px solid #e2e8f0; border-radius:6px; font-size:13px;" onchange="onReportUserChange(this.value)"></select>
+          <div style="display:flex; align-items:center; gap:6px; margin-left:auto;">
+            <button class="btn btn-gray" style="padding:4px 10px;" onclick="prevReportMonth()">◀</button>
+            <span id="report-month-label" style="font-size:13px; font-weight:600; min-width:80px; text-align:center;"></span>
+            <button class="btn btn-gray" style="padding:4px 10px;" onclick="nextReportMonth()">▶</button>
+          </div>
+          <button class="btn btn-blue" onclick="document.getElementById('ri-date').focus()">＋ 追加</button>
+        </div>
+        <div id="report-summary" style="display:flex; gap:16px; padding:10px 14px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:12px; font-size:13px; flex-wrap:wrap;"></div>
+        <div style="overflow-x:auto;">
+          <table id="report-table" style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead>
+              <tr>
+                <th>日付</th><th>開始</th><th>終了</th>
+                <th style="text-align:right;">時間</th>
+                <th>会社CD</th><th>会社名</th><th>業務内容</th><th></th>
+              </tr>
+              <tr id="report-input-row" style="background:#eff6ff; border-bottom:1px solid #bfdbfe;">
+                <td><input type="date" id="ri-date" style="width:130px; padding:5px; border:1px solid #cbd5e1; border-radius:5px; font-size:12px;"></td>
+                <td><input type="time" id="ri-start" style="width:85px; padding:5px; border:1px solid #cbd5e1; border-radius:5px; font-size:12px;" oninput="calcReportHours()"></td>
+                <td><input type="time" id="ri-end" style="width:85px; padding:5px; border:1px solid #cbd5e1; border-radius:5px; font-size:12px;" oninput="calcReportHours()"></td>
+                <td style="text-align:right;"><span id="ri-hours" style="font-size:12px; color:#475569; min-width:36px; display:inline-block; text-align:right;">-</span></td>
+                <td><input type="text" id="ri-code" placeholder="1234" style="width:60px; padding:5px; border:1px solid #cbd5e1; border-radius:5px; font-size:12px;"></td>
+                <td><input type="text" id="ri-name" placeholder="会社名" style="width:120px; padding:5px; border:1px solid #cbd5e1; border-radius:5px; font-size:12px;"></td>
+                <td><input type="text" id="ri-content" placeholder="業務内容" style="width:100%; min-width:140px; padding:5px; border:1px solid #cbd5e1; border-radius:5px; font-size:12px;" onkeydown="if(event.key==='Enter')saveReportEntry()"></td>
+                <td><button class="btn btn-blue" style="padding:5px 10px; font-size:12px; white-space:nowrap;" onclick="saveReportEntry()">保存</button></td>
+              </tr>
+            </thead>
+            <tbody id="report-entries"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -420,7 +467,10 @@ let _usersData = { users: [] };
 let _currentUser = null;
 let _sessionPassword = null;
 let _selCatId = null;
-let _viewMode = 'home'; // 'home' | 'category' | 'search' | 'qa' | 'user-mgmt'
+let _viewMode = 'home'; // 'home' | 'category' | 'search' | 'qa' | 'user-mgmt' | 'report'
+let _reportData = { entries: [] };
+let _currentReportMonth = '';
+let _reportViewUserId = null;
 let _openQId = null;
 let _editCatId = null, _editManualId = null;
 let _editImages = []; // { path, caption, url }
@@ -481,8 +531,10 @@ function setView(mode) {
   document.getElementById('search-view').style.display      = mode === 'search'    ? 'block' : 'none';
   document.getElementById('qa-view').style.display          = mode === 'qa'        ? 'block' : 'none';
   document.getElementById('user-mgmt-view').style.display   = mode === 'user-mgmt' ? 'block' : 'none';
+  document.getElementById('report-view').style.display      = mode === 'report'    ? 'block' : 'none';
   document.getElementById('nav-home').classList.toggle('active', mode === 'home');
   document.getElementById('nav-qa').classList.toggle('active', mode === 'qa');
+  document.getElementById('nav-report').classList.toggle('active', mode === 'report');
   const navUM = document.getElementById('nav-user-mgmt');
   if (navUM) navUM.classList.toggle('active', mode === 'user-mgmt');
 }
@@ -1286,6 +1338,166 @@ async function importUsersCSV(input) {
   renderUserMgmt();
   input.value = '';
   alert(`${toAdd.length}件のユーザーを登録しました`);
+}
+
+// ── 日報 ──────────────────────────────────────────
+function calcReportHours() {
+  const start = document.getElementById('ri-start').value;
+  const end   = document.getElementById('ri-end').value;
+  const el    = document.getElementById('ri-hours');
+  if (!start || !end) { el.textContent = '-'; return 0; }
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  const h = Math.round(((eh * 60 + em) - (sh * 60 + sm)) / 60 * 100) / 100;
+  el.textContent = h > 0 ? h.toFixed(2) : '-';
+  return h > 0 ? h : 0;
+}
+
+function calcSummary(entries) {
+  const totalHours = entries.reduce((sum, e) => sum + (e.hours || 0), 0);
+  const days      = new Set(entries.map(e => e.date)).size;
+  const companies = new Set(entries.map(e => e.company_code).filter(Boolean)).size;
+  return { totalHours: Math.round(totalHours * 100) / 100, days, companies };
+}
+
+async function showReport() {
+  if (!_currentReportMonth) {
+    const now = new Date();
+    _currentReportMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
+  if (!_reportViewUserId) _reportViewUserId = _currentUser?.id;
+  setView('report');
+  render();
+  await loadReport();
+}
+
+async function loadReport() {
+  const userId = _reportViewUserId || _currentUser?.id;
+  const r = await fetch(`/api/reports/${userId}/${_currentReportMonth}`);
+  _reportData = await r.json();
+  if (!_reportData.entries) _reportData.entries = [];
+  renderReport();
+}
+
+function renderReport() {
+  const [y, m] = _currentReportMonth.split('-');
+  document.getElementById('report-month-label').textContent = `${y}年${parseInt(m)}月`;
+
+  // タイトル
+  const sel = document.getElementById('report-user-select');
+  const isAdmin = _currentUser?.role === 'admin' || _currentUser?.role === 'leader';
+  if (isAdmin) {
+    sel.style.display = 'inline-block';
+    if (sel.options.length === 0) {
+      fetch('/api/users').then(r => r.json()).then(d => {
+        sel.innerHTML = (d.users || []).map(u =>
+          `<option value="${esc(u.id)}"${u.id === _reportViewUserId ? ' selected' : ''}>${esc(u.name)}</option>`
+        ).join('');
+        const opt = sel.options[sel.selectedIndex];
+        if (opt) document.getElementById('report-title').textContent = `日報 - ${opt.text}`;
+      });
+    } else {
+      const opt = sel.options[sel.selectedIndex];
+      if (opt) document.getElementById('report-title').textContent = `日報 - ${opt.text}`;
+    }
+  } else {
+    sel.style.display = 'none';
+    document.getElementById('report-title').textContent = `日報 - ${_currentUser?.name || ''}`;
+  }
+
+  // 日付初期値
+  const dateEl = document.getElementById('ri-date');
+  if (dateEl && !dateEl.value) dateEl.value = today();
+
+  // サマリー
+  const { totalHours, days, companies } = calcSummary(_reportData.entries);
+  document.getElementById('report-summary').innerHTML =
+    `<span>合計時間：<strong>${totalHours}h</strong></span>` +
+    `<span style="color:#cbd5e1;">|</span>` +
+    `<span>稼働日数：<strong>${days}日</strong></span>` +
+    `<span style="color:#cbd5e1;">|</span>` +
+    `<span>会社数：<strong>${companies}社</strong></span>`;
+
+  // エントリ一覧（日付降順）
+  const sorted = [..._reportData.entries].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+  const tbody = document.getElementById('report-entries');
+  tbody.innerHTML = '';
+  if (sorted.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" style="padding:20px; text-align:center; color:#94a3b8;">エントリがありません</td></tr>`;
+    return;
+  }
+  sorted.forEach(e => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="white-space:nowrap;">${esc(e.date)}</td>
+      <td style="white-space:nowrap;">${esc(e.start_time || '')}</td>
+      <td style="white-space:nowrap;">${esc(e.end_time || '')}</td>
+      <td style="text-align:right; white-space:nowrap;">${e.hours != null ? e.hours : ''}</td>
+      <td style="white-space:nowrap;">${esc(e.company_code || '')}</td>
+      <td style="white-space:nowrap;">${esc(e.company_name || '')}</td>
+      <td>${esc(e.content || '')}</td>
+      <td style="white-space:nowrap;"><button class="btn-sm" onclick="deleteReportEntry('${e.id}')">削除</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+async function saveReportEntry() {
+  const date    = document.getElementById('ri-date').value;
+  const start   = document.getElementById('ri-start').value;
+  const end     = document.getElementById('ri-end').value;
+  const code    = document.getElementById('ri-code').value.trim();
+  const name    = document.getElementById('ri-name').value.trim();
+  const content = document.getElementById('ri-content').value.trim();
+  if (!date) { alert('日付を入力してください'); return; }
+  const hours = calcReportHours();
+  _reportData.entries.push({
+    id: 'e_' + Date.now(),
+    date, start_time: start, end_time: end, hours,
+    company_code: code, company_name: name, content
+  });
+  await postReport();
+  ['ri-start', 'ri-end', 'ri-code', 'ri-name', 'ri-content'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('ri-hours').textContent = '-';
+  renderReport();
+}
+
+async function deleteReportEntry(id) {
+  if (!confirm('このエントリを削除しますか？')) return;
+  _reportData.entries = _reportData.entries.filter(e => e.id !== id);
+  await postReport();
+  renderReport();
+}
+
+async function postReport() {
+  const userId = _reportViewUserId || _currentUser?.id;
+  await fetch(`/api/reports/${userId}/${_currentReportMonth}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(_reportData)
+  });
+}
+
+function prevReportMonth() {
+  const [y, m] = _currentReportMonth.split('-').map(Number);
+  const d = new Date(y, m - 2, 1);
+  _currentReportMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  document.getElementById('report-user-select').innerHTML = '';
+  loadReport();
+}
+
+function nextReportMonth() {
+  const [y, m] = _currentReportMonth.split('-').map(Number);
+  const d = new Date(y, m, 1);
+  _currentReportMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  document.getElementById('report-user-select').innerHTML = '';
+  loadReport();
+}
+
+function onReportUserChange(userId) {
+  _reportViewUserId = userId;
+  loadReport();
 }
 
 // オーバーレイ外クリックで閉じる
