@@ -1,4 +1,4 @@
-import os, json, httpx, asyncio
+import os, json, httpx, asyncio, time
 from datetime import date
 import dropbox
 from dropbox.exceptions import ApiError as DropboxApiError
@@ -17,6 +17,22 @@ QA_PATH       = "/400000_CC/shikonshosai/qa.json"
 USERS_PATH    = "/400000_CC/shikonshosai/users.json"
 IMAGES_BASE   = "/400000_CC/shikonshosai/manual_images"
 REPORTS_BASE  = "/外注先共有/400000_CC/shikonshosai/reports"
+
+_cache: dict = {}
+_CACHE_TTL = 60
+
+def _cache_get(key):
+    if key in _cache:
+        data, ts = _cache[key]
+        if time.time() - ts < _CACHE_TTL:
+            return data
+    return None
+
+def _cache_set(key, data):
+    _cache[key] = (data, time.time())
+
+def _cache_delete(key):
+    _cache.pop(key, None)
 
 def _get_dropbox_client():
     return dropbox.Dropbox(
@@ -42,37 +58,50 @@ async def dropbox_save(path: str, data: dict):
 
 @app.get("/api/manuals")
 async def get_manuals():
-    data = await dropbox_get(MANUALS_PATH)
-    if data is None:
-        return {"categories": []}
+    cached = _cache_get("manuals")
+    if cached is not None:
+        return cached
+    data = await dropbox_get(MANUALS_PATH) or {"categories": []}
+    _cache_set("manuals", data)
     return data
 
 @app.post("/api/manuals")
 async def save_manuals(request: Request):
     data = await request.json()
     await dropbox_save(MANUALS_PATH, data)
+    _cache_delete("manuals")
     return {"ok": True}
 
 @app.get("/api/notices")
 async def get_notices():
-    data = await dropbox_get(NOTICES_PATH)
-    return data if data else {"notices": []}
+    cached = _cache_get("notices")
+    if cached is not None:
+        return cached
+    data = await dropbox_get(NOTICES_PATH) or {"notices": []}
+    _cache_set("notices", data)
+    return data
 
 @app.post("/api/notices")
 async def save_notices(request: Request):
     data = await request.json()
     await dropbox_save(NOTICES_PATH, data)
+    _cache_delete("notices")
     return {"ok": True}
 
 @app.get("/api/qa")
 async def get_qa():
-    data = await dropbox_get(QA_PATH)
-    return data if data else {"questions": []}
+    cached = _cache_get("qa")
+    if cached is not None:
+        return cached
+    data = await dropbox_get(QA_PATH) or {"questions": []}
+    _cache_set("qa", data)
+    return data
 
 @app.post("/api/qa")
 async def save_qa(request: Request):
     data = await request.json()
     await dropbox_save(QA_PATH, data)
+    _cache_delete("qa")
     return {"ok": True}
 
 @app.post("/api/manuals/upload_image")
@@ -155,15 +184,21 @@ async def startup_event():
 
 @app.get("/api/users")
 async def get_users():
+    cached = _cache_get("users")
+    if cached is not None:
+        return cached
     data = await dropbox_get(USERS_PATH)
     if data is None:
         return {"users": []}
-    return {"users": data.get("users", [])}
+    result = {"users": [{k: v for k, v in u.items() if k != "individual_password"} for u in data.get("users", [])]}
+    _cache_set("users", result)
+    return result
 
 @app.post("/api/users")
 async def save_users(request: Request):
     data = await request.json()
     await dropbox_save(USERS_PATH, data)
+    _cache_delete("users")
     return {"ok": True}
 
 @app.post("/api/auth/login")
@@ -207,6 +242,7 @@ async def change_password(request: Request):
     else:
         return JSONResponse({"error": "ユーザーが見つかりません"}, status_code=404)
     await dropbox_save(USERS_PATH, data)
+    _cache_delete("users")
     return {"ok": True}
 
 @app.post("/api/auth/logout")
@@ -223,6 +259,7 @@ async def auth_logout(request: Request):
             u["last_login"] = ""
             break
     await dropbox_save(USERS_PATH, users_data)
+    _cache_delete("users")
     return {"ok": True}
 
 @app.post("/api/auth/ping")
@@ -240,6 +277,7 @@ async def auth_ping(request: Request):
             u["last_login"] = today
             break
     await dropbox_save(USERS_PATH, users_data)
+    _cache_delete("users")
     return {"ok": True}
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
