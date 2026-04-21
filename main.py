@@ -1,7 +1,7 @@
 import os, json, httpx, asyncio, time, io, zipfile
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
-from datetime import date
+from datetime import date, datetime
 import dropbox
 from dropbox.exceptions import ApiError as DropboxApiError
 from fastapi import FastAPI, Request, UploadFile, File, Form, Query, Header, HTTPException
@@ -13,6 +13,10 @@ app = FastAPI()
 DROPBOX_APP_KEY      = os.environ.get("DROPBOX_APP_KEY")
 DROPBOX_APP_SECRET   = os.environ.get("DROPBOX_APP_SECRET")
 DROPBOX_REFRESH_TOKEN = os.environ.get("DROPBOX_REFRESH_TOKEN")
+FREEE_CLIENT_ID      = os.environ.get("FREEE_CLIENT_ID")
+FREEE_CLIENT_SECRET  = os.environ.get("FREEE_CLIENT_SECRET")
+FREEE_REFRESH_TOKEN  = os.environ.get("FREEE_REFRESH_TOKEN")
+FREEE_COMPANY_ID     = os.environ.get("FREEE_COMPANY_ID", "3254695")
 MANUALS_PATH  = "/400000_CC/shikonshosai/manuals.json"
 NOTICES_PATH  = "/400000_CC/shikonshosai/notices.json"
 QA_PATH       = "/400000_CC/shikonshosai/qa.json"
@@ -884,5 +888,104 @@ async def get_my_pledge(user_id: str, year_month: str):
                    if p.get("user_id") == user_id and p.get("year_month") == year_month), None)
     return pledge or {}
 
+
+async def get_freee_token() -> str:
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            "https://accounts.secure.freee.co.jp/public_api/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": FREEE_REFRESH_TOKEN,
+                "client_id": FREEE_CLIENT_ID,
+                "client_secret": FREEE_CLIENT_SECRET,
+            }
+        )
+        return r.json()["access_token"]
+
+@app.post("/api/invoices/freee/{year_month}")
+async def register_to_freee(year_month: str, request: Request):
+    body = await request.json()
+    user_id = body.get("user_id")
+
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+
+    if not current_user or current_user.get("role") not in ["admin", "soumu"]:
+        raise HTTPException(status_code=403)
+
+    invoices_data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
+
+    targets = [
+        inv for inv in invoices_data["invoices"]
+        if inv["year_month"] == year_month
+        and inv["status"] == "approved"
+        and not inv.get("freee_deal_id")
+    ]
+
+    if not targets:
+        return {"ok": True, "count": 0, "message": "登録対象がありません（未承認または登録済み）"}
+
+    token = await get_freee_token()
+    registered = 0
+    errors = []
+
+    async with httpx.AsyncClient() as client:
+        for inv in targets:
+            try:
+                deal_data = {
+                    "company_id": int(FREEE_COMPANY_ID),
+                    "issue_date": inv.get("invoice_date", f"{year_month}-30"),
+                    "due_date": inv.get("due_date", ""),
+                    "type": "expense",
+                    "details": [
+                        {
+                            "account_item_name": "業務委託費",
+                            "tax_code": 1,
+                            "amount": inv["total"],
+                            "description": f"業務委託料 {year_month} {inv['user_name']}"
+                        }
+                    ],
+                    "payments": [
+                        {
+                            "date": inv.get("due_date", ""),
+                            "from_walletable_type": "bank_account",
+                            "amount": inv["total"]
+                        }
+                    ]
+                }
+
+                r = await client.post(
+                    "https://api.freee.co.jp/api/1/deals",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json"
+                    },
+                    json=deal_data
+                )
+
+                if r.status_code == 201:
+                    deal_id = r.json()["deal"]["id"]
+                    for i, item in enumerate(invoices_data["invoices"]):
+                        if item["id"] == inv["id"]:
+                            invoices_data["invoices"][i]["freee_deal_id"] = deal_id
+                            invoices_data["invoices"][i]["freee_registered_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                            break
+                    registered += 1
+                else:
+                    errors.append(f"{inv['user_name']}: {r.text}")
+
+            except Exception as e:
+                errors.append(f"{inv['user_name']}: {str(e)}")
+
+    await dropbox_save(INVOICES_PATH, invoices_data)
+
+    return {
+        "ok": True,
+        "count": registered,
+        "errors": errors,
+        "message": f"{registered}件をfreeeに登録しました"
+    }
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

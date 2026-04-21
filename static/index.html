@@ -578,6 +578,7 @@
           </div>
           <button id="btn-invoices-excel" style="display:none; padding:6px 14px; border:1px solid #e2e8f0; border-radius:6px; background:#f0fdf4; font-size:13px; cursor:pointer;" onclick="downloadInvoiceExcel()">📥 Excel</button>
           <button id="btn-invoices-zip" style="display:none; padding:6px 14px; background:#1e3a5f; color:white; border:none; border-radius:6px; font-size:13px; cursor:pointer;" onclick="downloadInvoicesZip()">📦 ZIP一括</button>
+          <button id="freee-btn" style="display:none; font-size:12px; padding:6px 14px; background:#00c4a7; color:white; border:none; border-radius:6px; cursor:pointer;" onclick="registerToFreee()">会計連携</button>
         </div>
         <div id="invoice-admin-list" style="margin-top:12px;"></div>
       </div>
@@ -2080,11 +2081,14 @@ async function showInvoiceAdmin() {
 async function loadInvoiceAdmin() {
   const [y, m] = _invoiceAdminMonth.split('-');
   document.getElementById('invoice-admin-month-label').textContent = `${y}年${parseInt(m)}月`;
-  const canDownload = ['admin', 'soumu'].includes(_currentUser?.role);
+  const isAdmin = _currentUser?.role === 'admin';
+  const isAdminOrSoumu = isAdmin || _currentUser?.role === 'soumu';
   const excelBtn = document.getElementById('btn-invoices-excel');
-  if (excelBtn) excelBtn.style.display = canDownload ? 'inline-block' : 'none';
+  if (excelBtn) excelBtn.style.display = isAdminOrSoumu ? 'inline-block' : 'none';
   const zipBtn = document.getElementById('btn-invoices-zip');
-  if (zipBtn) zipBtn.style.display = canDownload ? 'inline-block' : 'none';
+  if (zipBtn) zipBtn.style.display = isAdmin ? 'inline-block' : 'none';
+  const freeeBtn = document.getElementById('freee-btn');
+  if (freeeBtn) freeeBtn.style.display = isAdminOrSoumu ? 'inline-block' : 'none';
   const listEl = document.getElementById('invoice-admin-list');
   listEl.innerHTML = '<div style="padding:20px; text-align:center; color:#94a3b8;">読み込み中...</div>';
   try {
@@ -2121,11 +2125,14 @@ function renderInvoiceAdmin() {
     const rejectBtn = canApprove && inv.status !== 'rejected'
       ? `<button onclick="rejectInvoice('${inv.id}')" style="padding:3px 10px; font-size:12px; background:#fee2e2; border:1px solid #fca5a5; border-radius:5px; cursor:pointer; color:#991b1b;">❌ 差し戻し</button>`
       : '';
+    const freeeBadge = inv.freee_deal_id
+      ? `<span style="font-size:10px; padding:2px 6px; border-radius:10px; background:#E1F5EE; color:#0F6E56;">freee登録済み</span>`
+      : '';
     return `<tr>
       <td style="padding:8px 12px; white-space:nowrap;">${esc(inv.user_name || inv.user_id)}</td>
       <td style="padding:8px 12px; white-space:nowrap;">${esc(inv.submitted_at || '-')}</td>
       <td style="padding:8px 12px; text-align:right; white-space:nowrap; font-weight:500;">${(inv.total||0).toLocaleString()} 円</td>
-      <td style="padding:8px 12px;">${statusLabel(inv.status)}</td>
+      <td style="padding:8px 12px;">${statusLabel(inv.status)} ${freeeBadge}</td>
       <td style="padding:8px 12px; font-size:12px; color:#64748b; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${memo}</td>
       <td style="padding:8px 12px; white-space:nowrap;">
         <button onclick="previewInvoiceAdmin('${inv.id}')" style="padding:3px 10px; font-size:12px; border:1px solid #e2e8f0; border-radius:5px; cursor:pointer; margin-right:4px; background:white;">🔍 確認</button>
@@ -2266,6 +2273,34 @@ function downloadInvoiceExcel() {
 function downloadInvoicesZip() {
   const url = `/api/invoices/zip/${_invoiceAdminMonth}?user_id=${encodeURIComponent(_currentUser?.id || '')}`;
   window.open(url, '_blank');
+}
+
+async function registerToFreee() {
+  if (!confirm(`${_invoiceAdminMonth}の承認済み請求書をfreeeに登録しますか？\n※登録済みのものはスキップされます`)) return;
+
+  const btn = document.getElementById('freee-btn');
+  btn.textContent = '登録中...';
+  btn.disabled = true;
+
+  try {
+    const r = await fetch(`/api/invoices/freee/${_invoiceAdminMonth}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ user_id: _currentUser?.id })
+    });
+    const result = await r.json();
+
+    if (result.errors && result.errors.length > 0) {
+      alert(`${result.message}\n\nエラー：\n${result.errors.join('\n')}`);
+    } else {
+      alert(result.message);
+    }
+
+    loadInvoiceAdmin();
+  } finally {
+    btn.textContent = '会計連携';
+    btn.disabled = false;
+  }
 }
 
 async function loadPendingInvoiceCount() {
