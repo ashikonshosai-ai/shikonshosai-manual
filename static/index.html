@@ -427,6 +427,7 @@
         <div style="display:flex; gap:0; margin-bottom:12px; border-bottom:2px solid #e2e8f0;">
           <button id="tab-entries" onclick="switchReportTab('entries')" style="padding:7px 18px; font-size:13px; font-weight:600; border:none; background:none; cursor:pointer; color:#1d4ed8; border-bottom:2px solid #1d4ed8; margin-bottom:-2px;">明細</button>
           <button id="tab-summary" onclick="switchReportTab('summary')" style="padding:7px 18px; font-size:13px; font-weight:600; border:none; background:none; cursor:pointer; color:#94a3b8; border-bottom:2px solid transparent; margin-bottom:-2px;">会社別集計</button>
+          <button id="tab-group" onclick="switchReportTab('group')" style="display:none; padding:7px 18px; font-size:13px; font-weight:600; border:none; background:none; cursor:pointer; color:#94a3b8; border-bottom:2px solid transparent; margin-bottom:-2px;">グループ集計</button>
         </div>
         <!-- 明細タブ内容 -->
         <div id="report-tab-entries">
@@ -472,6 +473,10 @@
             </thead>
             <tbody id="summary-entries"></tbody>
           </table>
+        </div>
+        <!-- グループ集計タブ内容 -->
+        <div id="report-tab-group" style="display:none;">
+          <div id="group-tab-content"><div style="padding:20px; text-align:center; color:#94a3b8;">読み込み中...</div></div>
         </div>
       </div>
     </div>
@@ -1541,6 +1546,7 @@ async function loadReport() {
   if (!_reportData.entries) _reportData.entries = [];
   renderReport();
   if (_reportTab === 'summary') renderSummaryTab();
+  if (_reportTab === 'group') renderGroupTab();
 }
 
 function renderReport() {
@@ -1550,6 +1556,8 @@ function renderReport() {
   const sel = document.getElementById('report-user-select');
   const role = _currentUser?.role;
   const canViewOthers = role === 'admin' || role === 'leader';
+  const tabGroup = document.getElementById('tab-group');
+  if (tabGroup) tabGroup.style.display = canViewOthers ? 'inline-block' : 'none';
   if (canViewOthers) {
     sel.style.display = 'inline-block';
     if (sel.options.length === 0) {
@@ -1701,19 +1709,22 @@ function onReportUserChange(userId) {
 }
 
 let _reportTab = 'entries';
+let _allReportsData = {};
 
 function switchReportTab(tab) {
   _reportTab = tab;
-  const isEntries = tab === 'entries';
-  document.getElementById('report-tab-entries').style.display = isEntries ? 'block' : 'none';
-  document.getElementById('report-tab-summary').style.display = isEntries ? 'none' : 'block';
-  const btnE = document.getElementById('tab-entries');
-  const btnS = document.getElementById('tab-summary');
-  btnE.style.color = isEntries ? '#1d4ed8' : '#94a3b8';
-  btnE.style.borderBottom = isEntries ? '2px solid #1d4ed8' : '2px solid transparent';
-  btnS.style.color = isEntries ? '#94a3b8' : '#1d4ed8';
-  btnS.style.borderBottom = isEntries ? '2px solid transparent' : '2px solid #1d4ed8';
-  if (!isEntries) renderSummaryTab();
+  document.getElementById('report-tab-entries').style.display = tab === 'entries' ? 'block' : 'none';
+  document.getElementById('report-tab-summary').style.display = tab === 'summary' ? 'block' : 'none';
+  document.getElementById('report-tab-group').style.display = tab === 'group' ? 'block' : 'none';
+  ['entries', 'summary', 'group'].forEach(t => {
+    const btn = document.getElementById('tab-' + t);
+    if (!btn) return;
+    const active = t === tab;
+    btn.style.color = active ? '#1d4ed8' : '#94a3b8';
+    btn.style.borderBottom = active ? '2px solid #1d4ed8' : '2px solid transparent';
+  });
+  if (tab === 'summary') renderSummaryTab();
+  if (tab === 'group') renderGroupTab();
 }
 
 function renderSummaryTab() {
@@ -1740,6 +1751,98 @@ function renderSummaryTab() {
   tfootTr.style.cssText = 'border-top:2px solid #e2e8f0; background:#f8fafc; font-weight:700;';
   tfootTr.innerHTML = `<td style="padding:8px 12px;">合計</td><td style="padding:8px 12px; text-align:right;">${formatHours(Math.round(totalHours * 100) / 100)}</td>`;
   tbody.appendChild(tfootTr);
+}
+
+async function renderGroupTab() {
+  const el = document.getElementById('group-tab-content');
+  el.innerHTML = '<div style="padding:20px; text-align:center; color:#94a3b8;">読み込み中...</div>';
+  let data;
+  try {
+    const r = await fetch(`/api/reports/all/${_currentReportMonth}`, {
+      headers: { 'user-id': _currentUser?.id || '' }
+    });
+    if (!r.ok) throw new Error(r.status);
+    data = await r.json();
+  } catch {
+    el.innerHTML = '<div style="padding:20px; text-align:center; color:#f87171;">データの取得に失敗しました</div>';
+    return;
+  }
+  _allReportsData = data;
+
+  const users = Object.entries(data)
+    .map(([uid, d]) => ({ uid, name: d.user_name }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+
+  if (users.length === 0) {
+    el.innerHTML = '<div style="padding:20px; text-align:center; color:#94a3b8;">データがありません</div>';
+    return;
+  }
+
+  // Build matrix[company][uid] = hours
+  const matrix = {};
+  users.forEach(({ uid }) => {
+    (data[uid]?.entries || []).forEach(e => {
+      const company = e.company_name || '（会社名なし）';
+      if (!matrix[company]) matrix[company] = {};
+      matrix[company][uid] = (matrix[company][uid] || 0) + (e.hours || 0);
+    });
+  });
+
+  const companies = Object.keys(matrix).sort((a, b) => {
+    const tA = users.reduce((s, { uid }) => s + (matrix[a][uid] || 0), 0);
+    const tB = users.reduce((s, { uid }) => s + (matrix[b][uid] || 0), 0);
+    return tB - tA;
+  });
+
+  const userTotals = {};
+  users.forEach(({ uid }) => {
+    userTotals[uid] = companies.reduce((s, c) => s + (matrix[c][uid] || 0), 0);
+  });
+  const grandTotal = users.reduce((s, { uid }) => s + userTotals[uid], 0);
+
+  const thR = 'padding:7px 10px; text-align:right; font-weight:600; color:#475569; white-space:nowrap; font-size:12px;';
+  const tdR = 'padding:6px 10px; text-align:right; font-size:12px; border-bottom:1px solid #f1f5f9;';
+  const tdL = 'padding:6px 10px; font-size:12px; border-bottom:1px solid #f1f5f9; white-space:nowrap;';
+
+  const headerCols = users.map(u => `<th style="${thR}">${esc(u.name)}</th>`).join('');
+
+  const rows = companies.map(company => {
+    const companyTotal = users.reduce((s, { uid }) => s + (matrix[company][uid] || 0), 0);
+    const cells = users.map(({ uid }) => {
+      const h = matrix[company][uid] || 0;
+      return `<td style="${tdR}">${h > 0 ? formatHours(Math.round(h * 100) / 100) : '-'}</td>`;
+    }).join('');
+    return `<tr>
+      <td style="${tdL}">${esc(company)}</td>
+      ${cells}
+      <td style="${tdR} font-weight:600;">${formatHours(Math.round(companyTotal * 100) / 100)}</td>
+    </tr>`;
+  }).join('');
+
+  const footerCells = users.map(({ uid }) =>
+    `<td style="${tdR} font-weight:700; background:#f8fafc; border-top:2px solid #e2e8f0;">${formatHours(Math.round(userTotals[uid] * 100) / 100)}</td>`
+  ).join('');
+
+  el.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead>
+          <tr style="background:#f8fafc; border-bottom:2px solid #e2e8f0;">
+            <th style="padding:7px 10px; text-align:left; font-weight:600; color:#475569; white-space:nowrap; font-size:12px;">会社名</th>
+            ${headerCols}
+            <th style="${thR}">合計</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr>
+            <td style="padding:6px 10px; font-size:12px; font-weight:700; background:#f8fafc; border-top:2px solid #e2e8f0;">合計</td>
+            ${footerCells}
+            <td style="${tdR} font-weight:700; background:#f8fafc; border-top:2px solid #e2e8f0;">${formatHours(Math.round(grandTotal * 100) / 100)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
 }
 
 async function copySummary() {
