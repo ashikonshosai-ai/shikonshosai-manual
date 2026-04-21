@@ -498,7 +498,7 @@
             <button class="btn btn-gray" style="padding:4px 10px;" onclick="nextInvoiceMonth()">▶</button>
           </div>
           <button onclick="addInvoiceSpecialItem()" style="padding:6px 14px; border:1px solid #e2e8f0; border-radius:6px; background:#f8fafc; font-size:13px; cursor:pointer;">＋ 特別項目追加</button>
-          <button onclick="printInvoice()" style="padding:6px 14px; background:#1e3a5f; color:white; border:none; border-radius:6px; font-size:13px; cursor:pointer; margin-left:auto;">📄 PDF出力</button>
+          <button onclick="openInvoicePrintWindow()" style="padding:6px 14px; background:#1e3a5f; color:white; border:none; border-radius:6px; font-size:13px; cursor:pointer; margin-left:auto;">📄 PDF出力</button>
         </div>
         <div id="invoice-doc-wrapper" style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:32px; max-width:700px; font-size:13px;">
           <div style="text-align:center; font-size:22px; font-weight:700; letter-spacing:0.15em; margin-bottom:20px;">請　求　書</div>
@@ -1748,7 +1748,7 @@ function nextInvoiceMonth() {
   loadInvoice();
 }
 
-function printInvoice() {
+function generateInvoiceHTML() {
   const user = _invoiceProfile || _currentUser || {};
   const hourlyRate = Number(user.hourly_rate) || 0;
   const { subtotal, tax, total } = calcInvoiceTotal();
@@ -1759,6 +1759,8 @@ function printInvoice() {
   const invNumber = document.getElementById('inv-number').textContent;
   const e = (s) => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const fmtDate = (s) => s ? s.replace(/-/g, '/') : '-';
+
+  const pageTitle = `${e(user.name||'')}_請求書_${_currentInvoiceMonth}`;
 
   const fromLines = [];
   if (user.name) fromLines.push(`<div style="font-weight:600;font-size:16px;margin-bottom:4px;">${e(user.name)}</div>`);
@@ -1784,7 +1786,7 @@ function printInvoice() {
     ? `${e(user.bank_name)} ${e(user.bank_branch||'')}　${e(user.bank_type||'普通')} ${e(user.bank_number||'')}　名義：${e(user.bank_holder||'')}`
     : '（未設定）';
 
-  const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>請求書 ${e(invNumber)}</title>
+  return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>${pageTitle}</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Hiragino Sans','Meiryo',sans-serif;font-size:13px;color:#1a1a1a;padding:32px;max-width:720px;margin:0 auto;}
@@ -1807,9 +1809,12 @@ table.items th:not(:first-child),table.items td:not(:first-child){text-align:rig
 .bank{background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px;font-size:12px;margin-bottom:16px;}
 .bank-title{font-weight:600;margin-bottom:6px;}
 .note{border:1px solid #e2e8f0;border-radius:6px;padding:10px;font-size:12px;white-space:pre-wrap;}
-@media print{body{padding:20px;}}
+.print-btn{display:block;margin:24px auto 0;padding:10px 28px;background:#1e3a5f;color:white;border:none;border-radius:6px;font-size:14px;cursor:pointer;}
+@page{margin:15mm;@bottom-right{content:"税理士法人士魂商才";font-size:8pt;color:#94a3b8;}}
+@media print{.print-btn{display:none;}body{padding:0;}}
 </style></head><body>
-<h1>請　求　書</h1>
+<button class="print-btn" onclick="window.print()">🖨 印刷・PDF保存</button>
+<h1 style="margin-top:20px;">請　求　書</h1>
 <div class="meta"><div class="meta-inner">
   <div>No. ${e(invNumber)}</div>
   <div>発行日：${fmtDate(invDate)}</div>
@@ -1834,11 +1839,15 @@ table.items th:not(:first-child),table.items td:not(:first-child){text-align:rig
 </table></div>
 <div class="bank"><div class="bank-title">お振込先</div><div>${bankHtml}</div></div>
 ${invNote ? `<div class="note"><div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">備考</div>${e(invNote)}</div>` : ''}
-<script>window.onload=function(){window.print();};<\/script>
 </body></html>`;
+}
 
-  const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
-  window.open(URL.createObjectURL(blob), '_blank');
+function openInvoicePrintWindow() {
+  const html = generateInvoiceHTML();
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank', 'width=900,height=1100,menubar=no,toolbar=no,location=no');
+  if (!win) alert('ポップアップがブロックされました。ブラウザの設定でポップアップを許可してください。');
 }
 
 // ── ユーザー管理 ──────────────────────────────────────────
