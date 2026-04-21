@@ -1310,10 +1310,12 @@ function renderUserMgmt() {
         <div style="flex:1;">
           <div style="font-size:14px;font-weight:600;color:#0f172a;">${esc(u.name)}</div>
           <div style="font-size:12px;color:#64748b;">${esc(u.email)}</div>
-          <div style="font-size:11px;color:#94a3b8;">${u.role === 'admin' ? '管理者' : 'スタッフ'}</div>
+          <div style="font-size:11px;color:#94a3b8;">${u.role === 'admin' ? '管理者' : u.role === 'leader' ? 'リーダー' : 'スタッフ'}${u.group ? ' / グループ' + esc(u.group) : ''}</div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
           <button class="btn btn-gray" onclick="editUserName(${idx})">名前変更</button>
+          <button class="btn btn-gray" onclick="editUserRole(${idx})">役割変更</button>
+          <button class="btn btn-gray" onclick="editUserGroup(${idx})">G変更</button>
           <button class="btn btn-gray" onclick="resetUserPassword(${idx})" title="パスワードをリセット（次回ログイン時に再設定）">🔄 PW</button>
           <button class="btn-text-red" onclick="deleteUser(${idx})">削除</button>
         </div>`;
@@ -1331,10 +1333,32 @@ async function addUser() {
   if (!name || !name.trim()) return;
   const email = prompt('Gmailアドレスを入力してください');
   if (!email || !email.trim()) return;
-  const roleStr = prompt('役割を入力してください（admin または staff）', 'staff');
-  const role = roleStr === 'admin' ? 'admin' : 'staff';
+  const roleStr = prompt('役割を入力してください（admin / leader / staff）', 'staff');
+  const role = ['admin', 'leader', 'staff'].includes(roleStr) ? roleStr : 'staff';
+  const group = prompt('グループを入力してください（A〜D、空でも可）', '') || '';
   _usersData.users = _usersData.users || [];
-  _usersData.users.push({ id: 'u_' + Date.now(), name: name.trim(), email: email.trim(), role, photo: '' });
+  _usersData.users.push({ id: 'u_' + Date.now(), name: name.trim(), email: email.trim(), role, group, photo: '' });
+  await saveUsers();
+  renderUserMgmt();
+}
+
+async function editUserRole(idx) {
+  const u = (_usersData.users || [])[idx];
+  if (!u) return;
+  const roleStr = prompt('新しい役割を入力してください（admin / leader / staff）', u.role);
+  if (!roleStr || !['admin', 'leader', 'staff'].includes(roleStr)) return;
+  if (roleStr === u.role) return;
+  _usersData.users[idx].role = roleStr;
+  await saveUsers();
+  renderUserMgmt();
+}
+
+async function editUserGroup(idx) {
+  const u = (_usersData.users || [])[idx];
+  if (!u) return;
+  const group = prompt('グループを入力してください（A〜D、空でリセット）', u.group || '');
+  if (group === null) return;
+  _usersData.users[idx].group = group.trim();
   await saveUsers();
   renderUserMgmt();
 }
@@ -1492,12 +1516,18 @@ function renderReport() {
   document.getElementById('report-month-label').textContent = `${y}年${parseInt(m)}月`;
 
   const sel = document.getElementById('report-user-select');
-  const isAdmin = _currentUser?.role === 'admin' || _currentUser?.role === 'leader';
-  if (isAdmin) {
+  const role = _currentUser?.role;
+  const canViewOthers = role === 'admin' || role === 'leader';
+  if (canViewOthers) {
     sel.style.display = 'inline-block';
     if (sel.options.length === 0) {
       fetch('/api/users').then(r => r.json()).then(d => {
-        sel.innerHTML = (d.users || []).map(u =>
+        let users = d.users || [];
+        if (role === 'leader') {
+          const myGroup = _currentUser?.group || '';
+          users = users.filter(u => u.group === myGroup);
+        }
+        sel.innerHTML = users.map(u =>
           `<option value="${esc(u.id)}"${u.id === _reportViewUserId ? ' selected' : ''}>${esc(u.name)}</option>`
         ).join('');
         const opt = sel.options[sel.selectedIndex];

@@ -1,7 +1,7 @@
 import os, json, httpx
 import dropbox
 from dropbox.exceptions import ApiError as DropboxApiError
-from fastapi import FastAPI, Request, UploadFile, File, Form, Query
+from fastapi import FastAPI, Request, UploadFile, File, Form, Query, Header, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -97,25 +97,32 @@ async def delete_image(request: Request):
     return {"ok": True}
 
 @app.get("/api/reports/all/{year_month}")
-async def get_all_reports(year_month: str):
-    try:
-        dbx = _get_dropbox_client()
-        result = dbx.files_list_folder(REPORTS_BASE)
-        suffix = f"_{year_month}.json"
-        all_reports = {}
-        for entry in result.entries:
-            if hasattr(entry, "name") and entry.name.endswith(suffix):
-                user_id = entry.name[: -len(suffix)]
-                try:
-                    _, res = dbx.files_download(entry.path_lower)
-                    all_reports[user_id] = json.loads(res.content)
-                except Exception:
-                    pass
-        return all_reports
-    except DropboxApiError as e:
-        if e.error.is_path() and e.error.get_path().is_not_found():
-            return {}
-        raise
+async def get_all_reports(year_month: str, user_id: str = Header(None)):
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+    if not current_user:
+        raise HTTPException(status_code=401)
+    role = current_user.get("role", "staff")
+    if role == "admin":
+        target_ids = [u["id"] for u in users_data["users"]]
+    elif role == "leader":
+        my_group = current_user.get("group", "")
+        target_ids = [u["id"] for u in users_data["users"] if u.get("group") == my_group]
+    else:
+        raise HTTPException(status_code=403)
+    results = {}
+    for uid in target_ids:
+        path = f"{REPORTS_BASE}/{uid}_{year_month}.json"
+        data = await dropbox_get(path)
+        if data:
+            user = next((u for u in users_data["users"] if u["id"] == uid), None)
+            results[uid] = {
+                "user_name": user["name"] if user else uid,
+                "entries": data.get("entries", [])
+            }
+    return results
 
 @app.get("/api/reports/{user_id}/{year_month}")
 async def get_report(user_id: str, year_month: str):
@@ -136,8 +143,16 @@ async def startup_event():
     if data is None:
         await dropbox_save(USERS_PATH, {
             "password": "shikonshosai",
-            "users": [{"id": "u1", "name": "勝野弘志", "email": "hkcpa416@gmail.com", "role": "admin", "photo": ""}]
+            "users": [{"id": "u1", "name": "勝野弘志", "email": "hkcpa416@gmail.com", "role": "admin", "group": "", "photo": ""}]
         })
+    else:
+        updated = False
+        for u in data.get("users", []):
+            if "group" not in u:
+                u["group"] = ""
+                updated = True
+        if updated:
+            await dropbox_save(USERS_PATH, data)
 
 @app.get("/api/users")
 async def get_users():
