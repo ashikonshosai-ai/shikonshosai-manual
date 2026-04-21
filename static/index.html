@@ -1790,6 +1790,10 @@ async function fetchGroupReports(yearMonth) {
   return data;
 }
 
+function downloadGroupExcel() {
+  window.location.href = `/api/reports/excel/${_currentReportMonth}?user_id=${encodeURIComponent(_currentUser?.id || '')}`;
+}
+
 function refreshGroupReport() {
   localStorage.removeItem(`report_cache_${_currentReportMonth}`);
   renderGroupTab();
@@ -1862,7 +1866,8 @@ async function renderGroupTab() {
   ).join('');
 
   el.innerHTML = `
-    <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+    <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px;">
+      <button onclick="downloadGroupExcel()" style="padding:6px 14px; border:1px solid #e2e8f0; border-radius:6px; background:#f0fdf4; font-size:13px; cursor:pointer;">📥 Excel</button>
       <button onclick="refreshGroupReport()" style="padding:6px 14px; border:1px solid #e2e8f0; border-radius:6px; background:#f8fafc; font-size:13px; cursor:pointer;">🔄 更新</button>
     </div>
     <div style="overflow-x:auto;">
