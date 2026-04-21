@@ -1769,16 +1769,36 @@ function renderSummaryTab() {
   tbody.appendChild(tfootTr);
 }
 
+async function fetchGroupReports(yearMonth) {
+  const today = new Date();
+  const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  const cacheKey = `report_cache_${yearMonth}`;
+  if (yearMonth !== currentMonth) {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) return JSON.parse(cached);
+  }
+  const r = await fetch(`/api/reports/all/${yearMonth}`, {
+    headers: { 'user-id': _currentUser?.id || '' }
+  });
+  if (!r.ok) throw new Error(r.status);
+  const data = await r.json();
+  if (yearMonth !== currentMonth) {
+    localStorage.setItem(cacheKey, JSON.stringify(data));
+  }
+  return data;
+}
+
+function refreshGroupReport() {
+  localStorage.removeItem(`report_cache_${_currentReportMonth}`);
+  renderGroupTab();
+}
+
 async function renderGroupTab() {
   const el = document.getElementById('group-tab-content');
   el.innerHTML = '<div style="padding:20px; text-align:center; color:#94a3b8;">読み込み中...</div>';
   let data;
   try {
-    const r = await fetch(`/api/reports/all/${_currentReportMonth}`, {
-      headers: { 'user-id': _currentUser?.id || '' }
-    });
-    if (!r.ok) throw new Error(r.status);
-    data = await r.json();
+    data = await fetchGroupReports(_currentReportMonth);
   } catch {
     el.innerHTML = '<div style="padding:20px; text-align:center; color:#f87171;">データの取得に失敗しました</div>';
     return;
@@ -1840,6 +1860,9 @@ async function renderGroupTab() {
   ).join('');
 
   el.innerHTML = `
+    <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+      <button onclick="refreshGroupReport()" style="padding:6px 14px; border:1px solid #e2e8f0; border-radius:6px; background:#f8fafc; font-size:13px; cursor:pointer;">🔄 更新</button>
+    </div>
     <div style="overflow-x:auto;">
       <table style="width:100%; border-collapse:collapse; font-size:13px;">
         <thead>
