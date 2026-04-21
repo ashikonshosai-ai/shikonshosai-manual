@@ -356,6 +356,7 @@
       </div>
       <div class="nav-item" id="nav-profile" onclick="showProfile()">👤 マイプロフィール</div>
       <div class="nav-item" id="nav-user-mgmt" style="display:none" onclick="showUserMgmt()">⚙ ユーザー管理</div>
+      <div class="nav-item" id="nav-pledge" onclick="showPledge()">📝 誓約書</div>
     </div>
     <div class="nav-label" style="padding: 8px 16px 4px;">マニュアル</div>
     <div class="left-pane-list" id="cat-list"></div>
@@ -581,6 +582,107 @@
         <div id="invoice-admin-list" style="margin-top:12px;"></div>
       </div>
 
+      <!-- 誓約書ビュー -->
+<div id="pledge-view" style="display:none; padding:16px; max-width:720px;">
+
+  <!-- スタッフ向け提出フォーム -->
+  <div id="pledge-form-section">
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+      <div class="right-title">テレワーク誓約書</div>
+      <div style="margin-left:auto; display:flex; align-items:center; gap:6px;">
+        <button class="btn btn-gray" style="padding:4px 10px;" onclick="prevPledgeMonth()">◀</button>
+        <span id="pledge-month-label" style="font-size:13px; font-weight:600; min-width:80px; text-align:center;"></span>
+        <button class="btn btn-gray" style="padding:4px 10px;" onclick="nextPledgeMonth()">▶</button>
+      </div>
+      <span id="pledge-status-badge"></span>
+    </div>
+
+    <!-- STEP 1 氏名・日付 -->
+    <div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:20px; margin-bottom:14px;">
+      <div style="font-size:11px; font-weight:700; letter-spacing:2px; color:#1e3a5f; border-left:3px solid #2563eb; padding-left:8px; margin-bottom:14px;">STEP 1　氏名・日付確認</div>
+      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:140px;">
+          <div style="font-size:12px; color:#64748b; margin-bottom:4px;">氏名</div>
+          <div id="pledge-name-display" style="padding:8px 12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; font-size:14px; font-weight:500;"></div>
+        </div>
+        <div style="flex:1; min-width:140px;">
+          <div style="font-size:12px; color:#64748b; margin-bottom:4px;">提出日</div>
+          <div id="pledge-date-display" style="padding:8px 12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; font-size:14px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 2 誓約書本文 -->
+    <div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:20px; margin-bottom:14px;">
+      <div style="font-size:11px; font-weight:700; letter-spacing:2px; color:#1e3a5f; border-left:3px solid #2563eb; padding-left:8px; margin-bottom:12px;">STEP 2　誓約書を最後まで読む</div>
+      <div id="pledge-scroll-box" onscroll="onPledgeScroll(this)"
+        style="height:300px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:4px; padding:18px; background:#f8fafc; font-size:13px; line-height:1.8; color:#334155;">
+        <p style="margin-bottom:16px;">私は、税理士法人士魂・商才（以下「甲」という。）から業務の委託を受け、テレワーク（在宅勤務等を含む）により業務を遂行するにあたり、以下の事項及び別紙記載事項を遵守することを誓約します。</p>
+        <div style="margin-bottom:12px;"><strong>1. 契約及び法令の遵守</strong><br>私は、甲との間で締結した業務委託契約書および関連する諸規程・指示を遵守し、税理士法その他関係法令を遵守します。</div>
+        <div style="margin-bottom:12px;"><strong>2. 守秘義務・情報管理</strong><br>業務を通じて知り得た甲および甲の顧客に関する機密情報・個人情報・マイナンバーその他の特定個人情報を、正当な理由なく第三者に開示・漏えい・複製・持出し等しません。また、業務終了後もこれらの情報を利用・保持しません。</div>
+        <div style="margin-bottom:12px;"><strong>3. 情報セキュリティの確保</strong><br>業務に使用するパソコン・通信機器等には、最新のセキュリティ対策（ウイルス対策ソフト・パスワード管理等）を講じ、適切に管理します。顧客データ等の保存は、甲の指定する方法（クラウド・VPN等）に従い、個人所有の端末や外部記憶媒体への保存は行いません。</div>
+        <div style="margin-bottom:12px;"><strong>4. 作業環境の適正化</strong><br>テレワークを行う場所は、第三者（家族を含む）が業務内容や資料を閲覧・聴取できないよう配慮した環境とします。</div>
+        <div style="margin-bottom:12px;"><strong>5. 資料・機器の管理・返却</strong><br>甲から貸与または預託された資料・機器・データ等は、善良なる管理者の注意をもって取り扱い、業務終了時または甲からの指示があった場合には速やかに返却または削除します。</div>
+        <div style="margin-bottom:12px;"><strong>6. 再委託の禁止</strong><br>私は、甲から委託を受けた業務の全部または一部を、第三者に再委託・外注・転貸し等しません。やむを得ず第三者の関与が必要な場合は、事前に甲の書面による承諾を得ます。</div>
+        <div style="margin-bottom:12px;"><strong>7. 事故等の報告義務</strong><br>情報漏えい、紛失、盗難、機器の不具合、通信障害その他の事故が発生または発生のおそれがある場合は、速やかに甲へ報告します。</div>
+        <div style="margin-bottom:12px;"><strong>8. 成果物の納期・品質</strong><br>テレワークにより業務を行う場合も、委託契約書に定められた納期および品質基準を遵守します。</div>
+        <div style="margin-bottom:16px;"><strong>9. 責任</strong><br>本誓約に違反し、甲またはその顧客に損害を与えた場合は、その損害を賠償する責任を負うことを承諾します。</div>
+        <div style="border-top:1px dashed #cbd5e1; padding-top:14px;">
+          <div style="font-weight:700; margin-bottom:8px;">（別紙）守秘義務の対象となる情報</div>
+          <ul style="margin:0 0 12px 18px; color:#475569;">
+            <li>クライアントの氏名、売上、利益、取引内容など</li>
+            <li>会計ソフト上で閲覧・処理したすべてのデータ</li>
+            <li>当社提供のマニュアル、業務ノウハウ、チェックルール等</li>
+            <li>SlackやChatWorkでのやり取り、共有資料、Zoom会議の内容など</li>
+          </ul>
+          <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:4px; padding:10px 12px; margin-bottom:10px;">
+            <div style="font-weight:700; color:#92400e; margin-bottom:6px; font-size:12px;">⚠ こんな行為も守秘義務違反となります</div>
+            <div style="font-size:12px; color:#78350f; line-height:1.7;">・家族や友人に「〇〇の経理を担当している」と話す<br>・SNSで業務内容やクライアントについて投稿する<br>・Zoom作業中に画面が家族に見えている<br>・関係者以外のスタッフに業務内容を共有する</div>
+          </div>
+          <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:4px; padding:10px 12px; margin-bottom:10px;">
+            <div style="font-weight:700; color:#92400e; margin-bottom:6px; font-size:12px;">📋 税理士法に関する重要な注意</div>
+            <div style="font-size:12px; color:#78350f; line-height:1.7;">・税務書類の作成や申告内容の判断を、税理士の監督なしに独自で行う<br>・クライアントに対して、税額・経費処理・節税方針などの説明や助言を独自で行う<br>・「私は税理士法人の代理です」と誤認させるような言動をとる</div>
+          </div>
+        </div>
+        <p style="font-weight:700; text-align:center; margin-top:16px;">以上の内容及び別紙記載内容を十分に理解し、誠実に遵守することを誓約します。</p>
+        <p style="text-align:right; font-size:12px; color:#64748b; margin-top:8px; line-height:1.8;">甲：税理士法人士魂・商才<br>代表社員　税理士　勝野　弘志　殿</p>
+      </div>
+      <div id="pledge-scroll-hint" style="margin-top:8px; font-size:12px; color:#94a3b8; text-align:center;">↓ スクロールして最後まで読んでください</div>
+      <div id="pledge-scroll-done" style="display:none; margin-top:8px; font-size:13px; color:#16a34a; font-weight:600; text-align:center;">✓ 全文を確認しました</div>
+    </div>
+
+    <!-- STEP 3 月次チェックリスト -->
+    <div id="pledge-checklist-section" style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:20px; margin-bottom:14px; opacity:0.4; pointer-events:none; transition:opacity 0.4s;">
+      <div style="font-size:11px; font-weight:700; letter-spacing:2px; color:#1e3a5f; border-left:3px solid #2563eb; padding-left:8px; margin-bottom:12px;">STEP 3　月次チェックリスト</div>
+      <p style="font-size:13px; color:#64748b; margin-bottom:12px;">今月も以下の項目をすべて確認してください。</p>
+      <div id="pledge-checks"></div>
+    </div>
+
+    <!-- 提出ボタン -->
+    <div style="text-align:center; padding:8px 0 16px;">
+      <div id="pledge-submit-hint" style="font-size:12px; color:#f59e0b; margin-bottom:10px;"></div>
+      <button id="btn-submit-pledge" onclick="submitPledge()"
+        style="background:#1e3a5f; color:white; border:none; border-radius:6px; padding:14px 48px; font-size:15px; letter-spacing:1px; cursor:not-allowed; display:inline-flex; align-items:center; gap:10px; opacity:0.5;">
+        📝 誓約して提出する
+      </button>
+    </div>
+  </div>
+
+  <!-- 管理者・リーダー向け提出一覧 -->
+  <div id="pledge-admin-section" style="display:none; margin-top:24px; border-top:1px solid #e2e8f0; padding-top:20px;">
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+      <div style="font-size:13px; font-weight:700; color:#0f172a;">提出一覧</div>
+      <div style="display:flex; align-items:center; gap:4px; margin-left:auto;">
+        <button class="btn btn-gray" style="padding:3px 8px;" onclick="prevPledgeAdminMonth()">◀</button>
+        <span id="pledge-admin-month-label" style="font-size:12px; font-weight:600; min-width:72px; text-align:center;"></span>
+        <button class="btn btn-gray" style="padding:3px 8px;" onclick="nextPledgeAdminMonth()">▶</button>
+      </div>
+    </div>
+    <div id="pledge-admin-list"></div>
+  </div>
+
+</div>
+
       <!-- ユーザー管理ビュー -->
       <div id="user-mgmt-view" style="display:none">
         <div class="right-header">
@@ -778,6 +880,7 @@ function setView(mode) {
   document.getElementById('profile-view').style.display     = mode === 'profile'   ? 'block' : 'none';
   document.getElementById('invoice-view').style.display       = mode === 'invoice'       ? 'block' : 'none';
   document.getElementById('invoice-admin-view').style.display = mode === 'invoice-admin' ? 'block' : 'none';
+  document.getElementById('pledge-view').style.display = mode === 'pledge' ? 'block' : 'none';
   document.getElementById('nav-home').classList.toggle('active', mode === 'home');
   document.getElementById('nav-qa').classList.toggle('active', mode === 'qa');
   document.getElementById('nav-report').classList.toggle('active', mode === 'report');
@@ -787,6 +890,7 @@ function setView(mode) {
   if (navIA) navIA.classList.toggle('active', mode === 'invoice-admin');
   const navUM = document.getElementById('nav-user-mgmt');
   if (navUM) navUM.classList.toggle('active', mode === 'user-mgmt');
+  document.getElementById('nav-pledge').classList.toggle('active', mode === 'pledge');
 }
 
 function render() {
@@ -2784,6 +2888,221 @@ async function copySummary() {
   } catch {
     prompt('以下をコピーしてください：', lines.join('\n'));
   }
+}
+
+// ── 誓約書 ──────────────────────────────────────────
+const PLEDGE_CHECKLIST = [
+  'パスワードロック・画面ロックは適切に設定していますか？',
+  '業務ファイルを個人PCやUSB、個人クラウドに保存していませんか？',
+  '税務判断や説明を自ら行っていませんか？',
+  '個別チャットで関与先とやり取りしていませんか？',
+  '資料や申告書等をプリントアウトしていませんか？',
+  'やむを得ずプリントアウトしたものは事務所へ郵送し破棄依頼をしていますか？',
+];
+
+let _pledgeMonth = '';
+let _pledgeScrolled = false;
+let _pledgeChecks = [];
+let _pledgeStatus = null;
+let _pledgeAdminMonth = '';
+let _pledgeAdminData = [];
+
+async function showPledge() {
+  if (!_pledgeMonth) {
+    const now = new Date();
+    _pledgeMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
+  if (!_pledgeAdminMonth) _pledgeAdminMonth = _pledgeMonth;
+  setView('pledge');
+  render();
+  await loadPledge();
+}
+
+async function loadPledge() {
+  const [y, m] = _pledgeMonth.split('-');
+  document.getElementById('pledge-month-label').textContent = `${y}年${parseInt(m)}月分`;
+  document.getElementById('pledge-name-display').textContent = _currentUser?.name || '';
+  document.getElementById('pledge-date-display').textContent = new Date().toISOString().slice(0, 10);
+  _pledgeChecks = Array(PLEDGE_CHECKLIST.length).fill(false);
+  _pledgeScrolled = false;
+  document.getElementById('pledge-scroll-hint').style.display = 'block';
+  document.getElementById('pledge-scroll-done').style.display = 'none';
+  const clSection = document.getElementById('pledge-checklist-section');
+  clSection.style.opacity = '0.4';
+  clSection.style.pointerEvents = 'none';
+  renderPledgeChecklist();
+  const r = await fetch(`/api/pledges/my/${_currentUser?.id}/${_pledgeMonth}`);
+  _pledgeStatus = r.ok ? await r.json() : null;
+  updatePledgeStatusBadge();
+  const role = _currentUser?.role;
+  const adminSection = document.getElementById('pledge-admin-section');
+  if (role === 'admin' || role === 'leader') {
+    adminSection.style.display = 'block';
+    await loadPledgeAdmin();
+  } else {
+    adminSection.style.display = 'none';
+  }
+  updatePledgeSubmitBtn();
+}
+
+function onPledgeScroll(el) {
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 20) {
+    if (!_pledgeScrolled) {
+      _pledgeScrolled = true;
+      document.getElementById('pledge-scroll-hint').style.display = 'none';
+      document.getElementById('pledge-scroll-done').style.display = 'block';
+      const clSection = document.getElementById('pledge-checklist-section');
+      clSection.style.opacity = '1';
+      clSection.style.pointerEvents = 'auto';
+      updatePledgeSubmitBtn();
+    }
+  }
+}
+
+function renderPledgeChecklist() {
+  const el = document.getElementById('pledge-checks');
+  if (!el) return;
+  el.innerHTML = '';
+  PLEDGE_CHECKLIST.forEach((item, i) => {
+    const row = document.createElement('label');
+    row.style.cssText = 'display:flex; align-items:flex-start; gap:10px; margin-bottom:12px; cursor:pointer; user-select:none;';
+    const box = document.createElement('div');
+    const checked = _pledgeChecks[i];
+    box.style.cssText = `width:22px; height:22px; border:2px solid ${checked ? '#2563eb' : '#cbd5e1'}; border-radius:4px; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px; background:${checked ? '#2563eb' : 'white'}; transition:all 0.2s;`;
+    if (checked) box.innerHTML = '<span style="color:white; font-size:14px; font-weight:700;">✓</span>';
+    box.onclick = () => {
+      _pledgeChecks[i] = !_pledgeChecks[i];
+      renderPledgeChecklist();
+      updatePledgeSubmitBtn();
+    };
+    const text = document.createElement('span');
+    text.style.cssText = 'font-size:13px; line-height:1.7; color:#334155;';
+    text.textContent = item;
+    row.appendChild(box);
+    row.appendChild(text);
+    el.appendChild(row);
+  });
+}
+
+function updatePledgeSubmitBtn() {
+  const allChecked = _pledgeChecks.every(Boolean);
+  const canSubmit = _pledgeScrolled && allChecked;
+  const btn = document.getElementById('btn-submit-pledge');
+  const hint = document.getElementById('pledge-submit-hint');
+  if (btn) {
+    btn.style.opacity = canSubmit ? '1' : '0.5';
+    btn.style.cursor = canSubmit ? 'pointer' : 'not-allowed';
+  }
+  if (hint) {
+    if (!_pledgeScrolled) hint.textContent = '① 誓約書を最後まで読んでください';
+    else if (!allChecked) hint.textContent = '② チェックリストをすべて確認してください';
+    else hint.textContent = '';
+  }
+}
+
+function updatePledgeStatusBadge() {
+  const badge = document.getElementById('pledge-status-badge');
+  if (!badge) return;
+  if (_pledgeStatus?.id) {
+    badge.innerHTML = '<span style="padding:3px 10px; background:#dcfce7; color:#166534; border-radius:12px; font-size:12px; font-weight:600;">✅ 提出済み</span>';
+  } else {
+    badge.innerHTML = '';
+  }
+}
+
+async function submitPledge() {
+  const allChecked = _pledgeChecks.every(Boolean);
+  if (!_pledgeScrolled || !allChecked) { updatePledgeSubmitBtn(); return; }
+  if (_pledgeStatus?.id) {
+    if (!confirm('既に提出済みです。再提出しますか？')) return;
+  }
+  const r = await fetch('/api/pledges/submit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      user_id: _currentUser?.id,
+      user_name: _currentUser?.name || '',
+      year_month: _pledgeMonth,
+      checklist: PLEDGE_CHECKLIST,
+    })
+  });
+  if (!r.ok) { alert('提出に失敗しました'); return; }
+  const d = await r.json();
+  _pledgeStatus = d.pledge;
+  updatePledgeStatusBadge();
+  if (_currentUser?.role === 'admin' || _currentUser?.role === 'leader') await loadPledgeAdmin();
+  const [y, m] = _pledgeMonth.split('-');
+  alert(`${y}年${parseInt(m)}月分の誓約書を提出しました`);
+}
+
+function prevPledgeMonth() {
+  const [y, m] = _pledgeMonth.split('-').map(Number);
+  const d = new Date(y, m - 2, 1);
+  _pledgeMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  loadPledge();
+}
+
+function nextPledgeMonth() {
+  const [y, m] = _pledgeMonth.split('-').map(Number);
+  const d = new Date(y, m, 1);
+  _pledgeMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  loadPledge();
+}
+
+async function loadPledgeAdmin() {
+  const [y, m] = _pledgeAdminMonth.split('-');
+  document.getElementById('pledge-admin-month-label').textContent = `${y}年${parseInt(m)}月`;
+  const listEl = document.getElementById('pledge-admin-list');
+  listEl.innerHTML = '<div style="padding:12px; text-align:center; color:#94a3b8; font-size:13px;">読み込み中...</div>';
+  try {
+    const r = await fetch('/api/pledges', { headers: { 'user-id': _currentUser?.id || '' } });
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    _pledgeAdminData = (d.pledges || []).filter(p => p.year_month === _pledgeAdminMonth);
+    renderPledgeAdmin();
+  } catch {
+    listEl.innerHTML = '<div style="padding:12px; text-align:center; color:#f87171; font-size:13px;">取得に失敗しました</div>';
+  }
+}
+
+function renderPledgeAdmin() {
+  const listEl = document.getElementById('pledge-admin-list');
+  if (_pledgeAdminData.length === 0) {
+    listEl.innerHTML = '<div style="padding:12px; text-align:center; color:#94a3b8; font-size:13px;">まだ提出がありません</div>';
+    return;
+  }
+  const rows = _pledgeAdminData.map(p => `
+    <tr>
+      <td style="padding:8px 12px; font-weight:500;">${esc(p.user_name || p.user_id)}</td>
+      <td style="padding:8px 12px; color:#64748b; font-size:12px;">${esc(p.submitted_at || '-')}</td>
+      <td style="padding:8px 12px;"><span style="padding:2px 8px; background:#dcfce7; color:#166534; border-radius:10px; font-size:11px; font-weight:600;">✅ 提出済み</span></td>
+    </tr>`).join('');
+  listEl.innerHTML = `<div style="overflow-x:auto;">
+    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <thead>
+        <tr style="background:#f8fafc; border-bottom:2px solid #e2e8f0;">
+          <th style="padding:7px 12px; text-align:left; font-weight:600; color:#475569;">スタッフ名</th>
+          <th style="padding:7px 12px; text-align:left; font-weight:600; color:#475569;">提出日</th>
+          <th style="padding:7px 12px; text-align:left; font-weight:600; color:#475569;">ステータス</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+function prevPledgeAdminMonth() {
+  const [y, m] = _pledgeAdminMonth.split('-').map(Number);
+  const d = new Date(y, m - 2, 1);
+  _pledgeAdminMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  loadPledgeAdmin();
+}
+
+function nextPledgeAdminMonth() {
+  const [y, m] = _pledgeAdminMonth.split('-').map(Number);
+  const d = new Date(y, m, 1);
+  _pledgeAdminMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  loadPledgeAdmin();
 }
 
 // オーバーレイ外クリックで閉じる
