@@ -13,10 +13,8 @@ app = FastAPI()
 DROPBOX_APP_KEY      = os.environ.get("DROPBOX_APP_KEY")
 DROPBOX_APP_SECRET   = os.environ.get("DROPBOX_APP_SECRET")
 DROPBOX_REFRESH_TOKEN = os.environ.get("DROPBOX_REFRESH_TOKEN")
-FREEE_CLIENT_ID      = os.environ.get("FREEE_CLIENT_ID")
-FREEE_CLIENT_SECRET  = os.environ.get("FREEE_CLIENT_SECRET")
-FREEE_REFRESH_TOKEN  = os.environ.get("FREEE_REFRESH_TOKEN")
-FREEE_COMPANY_ID     = os.environ.get("FREEE_COMPANY_ID", "3254695")
+SHIKONSHOSAI_APP_URL = os.environ.get("SHIKONSHOSAI_APP_URL", "https://shikonshosai-app.onrender.com")
+INTERNAL_SECRET      = os.environ.get("INTERNAL_SECRET", "shikonshosai_internal_2024")
 MANUALS_PATH  = "/400000_CC/shikonshosai/manuals.json"
 NOTICES_PATH  = "/400000_CC/shikonshosai/notices.json"
 QA_PATH       = "/400000_CC/shikonshosai/qa.json"
@@ -889,23 +887,6 @@ async def get_my_pledge(user_id: str, year_month: str):
     return pledge or {}
 
 
-async def get_freee_token() -> str:
-    async with httpx.AsyncClient() as client:
-        r = await client.post(
-            "https://accounts.secure.freee.co.jp/public_api/token",
-            data={
-                "grant_type":    "refresh_token",
-                "client_id":     FREEE_CLIENT_ID,
-                "client_secret": FREEE_CLIENT_SECRET,
-                "refresh_token": FREEE_REFRESH_TOKEN,
-            }
-        )
-        print(f"[freee token] status={r.status_code} body={r.text[:200]}")
-        data = r.json()
-        if "access_token" not in data:
-            raise HTTPException(status_code=500, detail=f"freeeトークン取得失敗: {data}")
-        return data["access_token"]
-
 @app.post("/api/invoices/freee/{year_month}")
 async def register_to_freee(year_month: str, request: Request):
     body = await request.json()
@@ -929,56 +910,35 @@ async def register_to_freee(year_month: str, request: Request):
     ]
 
     if not targets:
-        return {"ok": True, "count": 0, "message": "登録対象がありません（未承認または登録済み）"}
+        return {"ok": True, "count": 0, "message": "登録対象がありません"}
 
-    token = await get_freee_token()
     registered = 0
     errors = []
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30) as client:
         for inv in targets:
             try:
-                deal_data = {
-                    "company_id": int(FREEE_COMPANY_ID),
-                    "issue_date": inv.get("invoice_date", f"{year_month}-30"),
-                    "due_date": inv.get("due_date", ""),
-                    "type": "expense",
-                    "details": [
-                        {
-                            "account_item_name": "業務委託費",
-                            "tax_code": 1,
-                            "amount": inv["total"],
-                            "description": f"業務委託料 {year_month} {inv['user_name']}"
-                        }
-                    ],
-                    "payments": [
-                        {
-                            "date": inv.get("due_date", ""),
-                            "from_walletable_type": "bank_account",
-                            "amount": inv["total"]
-                        }
-                    ]
-                }
-
                 r = await client.post(
-                    "https://api.freee.co.jp/api/1/deals",
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json"
-                    },
-                    json=deal_data
+                    f"{SHIKONSHOSAI_APP_URL}/api/internal/register_deal",
+                    json={
+                        "secret":      INTERNAL_SECRET,
+                        "issue_date":  inv.get("invoice_date", f"{year_month}-30"),
+                        "due_date":    inv.get("due_date", ""),
+                        "amount":      inv["total"],
+                        "description": f"業務委託料 {year_month} {inv['user_name']}"
+                    }
                 )
+                result = r.json()
 
-                if r.status_code == 201:
-                    deal_id = r.json()["deal"]["id"]
+                if result.get("ok"):
                     for i, item in enumerate(invoices_data["invoices"]):
                         if item["id"] == inv["id"]:
-                            invoices_data["invoices"][i]["freee_deal_id"] = deal_id
+                            invoices_data["invoices"][i]["freee_deal_id"] = result["deal_id"]
                             invoices_data["invoices"][i]["freee_registered_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                             break
                     registered += 1
                 else:
-                    errors.append(f"{inv['user_name']}: {r.text}")
+                    errors.append(f"{inv['user_name']}: {result.get('error', '不明なエラー')}")
 
             except Exception as e:
                 errors.append(f"{inv['user_name']}: {str(e)}")
