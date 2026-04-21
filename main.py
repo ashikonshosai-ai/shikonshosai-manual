@@ -282,6 +282,30 @@ async def startup_event():
         if updated:
             await dropbox_save(USERS_PATH, data)
 
+@app.post("/api/users/profile")
+async def update_profile(request: Request):
+    body = await request.json()
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401)
+    allowed_fields = [
+        "personal_email", "phone", "postal_code", "address",
+        "bank_name", "bank_branch", "bank_type", "bank_number",
+        "bank_holder", "invoice_number", "hourly_rate"
+    ]
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    for user in users_data.get("users", []):
+        if user.get("id") == user_id:
+            for field in allowed_fields:
+                if field in body:
+                    user[field] = body[field]
+            break
+    await dropbox_save(USERS_PATH, users_data)
+    _cache_delete("users")
+    return {"ok": True}
+
 @app.get("/api/users")
 async def get_users():
     cached = _cache_get("users")
