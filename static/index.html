@@ -557,14 +557,21 @@ function initQuill(content) {
 
 // 起動時にデータ取得（並列）
 async function initApp() {
-  const [manualsRes, noticesRes, qaRes] = await Promise.all([
+  fetch('/api/auth/ping', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: _currentUser?.id })
+  });
+  const [manualsRes, noticesRes, qaRes, usersRes] = await Promise.all([
     fetch('/api/manuals').then(r => r.json()),
     fetch('/api/notices').then(r => r.json()),
-    fetch('/api/qa').then(r => r.json())
+    fetch('/api/qa').then(r => r.json()),
+    fetch('/api/users').then(r => r.json())
   ]);
   _data = manualsRes;
   _noticesData = noticesRes;
   _qaData = qaRes;
+  if (usersRes.users) _usersData = usersRes;
   if (!_data.categories) _data.categories = [];
   if (!_noticesData.notices) _noticesData.notices = [];
   if (!_qaData.questions) _qaData.questions = [];
