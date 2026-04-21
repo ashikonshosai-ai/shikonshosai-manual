@@ -543,28 +543,60 @@ async def download_invoices_excel(year_month: str, user_id: str = Query(None)):
     data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
     invoices = [inv for inv in data.get("invoices", [])
                 if inv.get("year_month") == year_month and inv.get("status") == "approved"]
+
+    from openpyxl.utils import get_column_letter
     wb = Workbook()
     ws = wb.active
-    ws.title = f"{year_month}承認済み請求書"
+    ws.title = f"{year_month}請求明細"
+
     header_fill = PatternFill(fill_type="solid", fgColor="2563EB")
     header_font = Font(bold=True, color="FFFFFF")
-    center = Alignment(horizontal="center")
-    headers = ["スタッフ名", "提出日", "請求金額（円）", "承認日", "承認者"]
+    row_fill   = PatternFill(fill_type="solid", fgColor="EFF6FF")
+    right      = Alignment(horizontal="right")
+
+    headers = ["スタッフ名", "会社名・業務内容", "作業時間", "金額（税込）"]
     for col, val in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=val)
-        cell.font = header_font; cell.fill = header_fill; cell.alignment = center
-    for row_idx, inv in enumerate(invoices, 2):
-        ws.cell(row=row_idx, column=1, value=inv.get("user_name", ""))
-        ws.cell(row=row_idx, column=2, value=inv.get("submitted_at", ""))
-        ws.cell(row=row_idx, column=3, value=inv.get("total", 0))
-        ws.cell(row=row_idx, column=4, value=inv.get("approved_at", ""))
-        ws.cell(row=row_idx, column=5, value=inv.get("approved_by", ""))
-    for col_letter, width in [("A",20),("B",14),("C",16),("D",14),("E",16)]:
-        ws.column_dimensions[col_letter].width = width
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    row_idx = 2
+    for inv in invoices:
+        first_row = row_idx
+        for item in inv.get("items", []):
+            ws.cell(row=row_idx, column=1, value=inv.get("user_name", ""))
+            ws.cell(row=row_idx, column=2, value=item.get("company", ""))
+            h_cell = ws.cell(row=row_idx, column=3, value=item.get("hours", 0))
+            h_cell.number_format = "0.00"
+            h_cell.alignment = right
+            a_cell = ws.cell(row=row_idx, column=4, value=item.get("amount", 0))
+            a_cell.number_format = "#,##0"
+            a_cell.alignment = right
+            row_idx += 1
+        for item in inv.get("special_items", []):
+            ws.cell(row=row_idx, column=1, value=inv.get("user_name", ""))
+            ws.cell(row=row_idx, column=2, value=item.get("content", ""))
+            ws.cell(row=row_idx, column=3, value=None)
+            a_cell = ws.cell(row=row_idx, column=4, value=item.get("amount", 0))
+            a_cell.number_format = "#,##0"
+            a_cell.alignment = right
+            row_idx += 1
+        for r in range(first_row, row_idx):
+            for c in range(1, 5):
+                ws.cell(row=r, column=c).fill = row_fill
+        ws.append([])
+        row_idx += 1
+
+    ws.column_dimensions["A"].width = 20
+    ws.column_dimensions["B"].width = 30
+    ws.column_dimensions["C"].width = 12
+    ws.column_dimensions["D"].width = 15
+
     buf = io.BytesIO()
     wb.save(buf); buf.seek(0)
     from urllib.parse import quote
-    filename = quote(f"請求書一覧_{year_month}.xlsx")
+    filename = quote(f"請求明細_{year_month}.xlsx")
     return StreamingResponse(buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"})
