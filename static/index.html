@@ -560,21 +560,14 @@ function initQuill(content) {
 
 // 起動時にデータ取得（並列）
 async function initApp() {
-  fetch('/api/auth/ping', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: _currentUser?.id })
-  });
-  const [manualsRes, noticesRes, qaRes, usersRes] = await Promise.all([
+  const [manualsRes, noticesRes, qaRes] = await Promise.all([
     fetch('/api/manuals').then(r => r.json()),
     fetch('/api/notices').then(r => r.json()),
-    fetch('/api/qa').then(r => r.json()),
-    fetch('/api/users').then(r => r.json())
+    fetch('/api/qa').then(r => r.json())
   ]);
   _data = manualsRes;
   _noticesData = noticesRes;
   _qaData = qaRes;
-  if (usersRes.users) _usersData = usersRes;
   if (!_data.categories) _data.categories = [];
   if (!_noticesData.notices) _noticesData.notices = [];
   if (!_qaData.questions) _qaData.questions = [];
@@ -807,11 +800,9 @@ function renderTodayUsers() {
 }
 
 async function showHome() {
-  const [noticesRes, qaRes, usersRes] = await Promise.all([fetch('/api/notices'), fetch('/api/qa'), fetch('/api/users')]);
+  const [noticesRes, qaRes] = await Promise.all([fetch('/api/notices'), fetch('/api/qa')]);
   _noticesData = await noticesRes.json();
   _qaData = await qaRes.json();
-  const usersJson = await usersRes.json();
-  if (usersJson.users) _usersData = usersJson;
   if (!_noticesData.notices) _noticesData.notices = [];
   if (!_qaData.questions) _qaData.questions = [];
   updateQaBadge();
