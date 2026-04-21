@@ -304,8 +304,11 @@ async def download_reports_excel(
 
     async def fetch_report(user):
         path = f"{REPORTS_BASE}/{user['id']}_{year_month}.json"
-        data = await dropbox_get(path)
-        return user.get("name", user["id"]), (data or {}).get("entries", [])
+        try:
+            data = await dropbox_get(path)
+            return user.get("name", user["id"]), (data or {}).get("entries", [])
+        except Exception:
+            return user.get("name", user["id"]), []
 
     results = await asyncio.gather(*[fetch_report(u) for u in target_users])
 
