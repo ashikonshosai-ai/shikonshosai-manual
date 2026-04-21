@@ -15,7 +15,7 @@ NOTICES_PATH  = "/400000_CC/shikonshosai/notices.json"
 QA_PATH       = "/400000_CC/shikonshosai/qa.json"
 USERS_PATH    = "/400000_CC/shikonshosai/users.json"
 IMAGES_BASE   = "/400000_CC/shikonshosai/manual_images"
-REPORTS_BASE  = "/400000_CC/shikonshosai/reports"
+REPORTS_BASE  = "/外注先共有/400000_CC/shikonshosai/reports"
 
 def _get_dropbox_client():
     return dropbox.Dropbox(
