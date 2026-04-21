@@ -381,13 +381,25 @@ function initQuill(content) {
   quillInstance.root.innerHTML = content || '';
 }
 
-// 起動時にデータ取得
-(async () => {
-  const res = await fetch('/api/manuals');
-  _data = await res.json();
+// 起動時にデータ取得（並列）
+async function initApp() {
+  const [manualsRes, noticesRes, qaRes] = await Promise.all([
+    fetch('/api/manuals').then(r => r.json()),
+    fetch('/api/notices').then(r => r.json()),
+    fetch('/api/qa').then(r => r.json())
+  ]);
+  _data = manualsRes;
+  _noticesData = noticesRes;
+  _qaData = qaRes;
   if (!_data.categories) _data.categories = [];
-  await showHome();
-})();
+  if (!_noticesData.notices) _noticesData.notices = [];
+  if (!_qaData.questions) _qaData.questions = [];
+  updateQaBadge();
+  setView('home');
+  render();
+  renderHome();
+}
+initApp();
 
 function setView(mode) {
   _viewMode = mode;
