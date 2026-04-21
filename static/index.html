@@ -762,10 +762,41 @@ async function deleteManual(catId, manualId) {
 }
 
 // ── ホーム ──────────────────────────────────────────
+function renderTodayUsers() {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayUsers = (_usersData.users || []).filter(u => u.last_login === todayStr);
+  if (todayUsers.length === 0) return '';
+  const avatars = todayUsers.map(u => {
+    const initial = u.name.charAt(0);
+    const photo = u.photo
+      ? `<img src="${u.photo}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`
+      : `<span style="font-size:13px;font-weight:500;">${initial}</span>`;
+    return `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+        <div title="${esc(u.name)}"
+          style="width:36px;height:36px;border-radius:50%;background:#EEEDFE;color:#3C3489;
+          display:flex;align-items:center;justify-content:center;border:2px solid #1D9E75;
+          overflow:hidden;cursor:default;">
+          ${photo}
+        </div>
+        <span style="font-size:10px;color:#64748b;max-width:44px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(u.name.split('　')[0])}</span>
+      </div>`;
+  }).join('');
+  return `
+    <div style="margin-bottom:16px;">
+      <div style="font-size:12px;font-weight:500;color:#64748b;margin-bottom:8px;">
+        本日ログイン済み <span style="font-weight:400;">${todayUsers.length}名</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">${avatars}</div>
+    </div>`;
+}
+
 async function showHome() {
-  const [noticesRes, qaRes] = await Promise.all([fetch('/api/notices'), fetch('/api/qa')]);
+  const [noticesRes, qaRes, usersRes] = await Promise.all([fetch('/api/notices'), fetch('/api/qa'), fetch('/api/users')]);
   _noticesData = await noticesRes.json();
   _qaData = await qaRes.json();
+  const usersJson = await usersRes.json();
+  if (usersJson.users) _usersData = usersJson;
   if (!_noticesData.notices) _noticesData.notices = [];
   if (!_qaData.questions) _qaData.questions = [];
   updateQaBadge();
@@ -822,6 +853,7 @@ function renderHome() {
     </div>`;
 
   el.innerHTML = `
+    ${renderTodayUsers()}
     <div style="margin-bottom:24px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div class="home-section-title" style="margin-bottom:0;border-bottom:none">📢 お知らせ</div>

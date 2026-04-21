@@ -1,4 +1,5 @@
 import os, json, httpx
+from datetime import date
 import dropbox
 from dropbox.exceptions import ApiError as DropboxApiError
 from fastapi import FastAPI, Request, UploadFile, File, Form, Query, Header, HTTPException
@@ -187,7 +188,12 @@ async def login(request: Request):
         if password != data.get("password", ""):
             return JSONResponse({"error": "パスワードが違います"}, status_code=401)
         password_changed = False
-    return {**{k: v for k, v in user.items() if k != "individual_password"}, "password_changed": password_changed}
+    for u in data.get("users", []):
+        if u.get("email") == email:
+            u["last_login"] = date.today().isoformat()
+            break
+    await dropbox_save(USERS_PATH, data)
+    return {**{k: v for k, v in user.items() if k != "individual_password"}, "password_changed": password_changed, "last_login": date.today().isoformat()}
 
 @app.post("/api/auth/change_password")
 async def change_password(request: Request):
