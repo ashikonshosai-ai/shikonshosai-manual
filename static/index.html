@@ -1259,22 +1259,22 @@ async function importUsersCSV(input) {
   const file = input.files[0];
   if (!file) return;
   const text = await file.text();
-  const lines = text.trim().split('\n');
-  const headers = lines[0].split(',').map(h => h.trim());
-  const newUsers = lines.slice(1).map((line, i) => {
+  const cleaned = text.replace(/^\uFEFF/, '');
+  const lines = cleaned.trim().split(/\r?\n/);
+  const newUsers = lines.map((line, i) => {
     const cols = line.split(',').map(c => c.trim());
     return {
       id: 'u_' + Date.now() + '_' + i,
-      name: cols[headers.indexOf('name')] || '',
-      email: cols[headers.indexOf('email')] || '',
-      role: cols[headers.indexOf('role')] || 'staff',
+      name: cols[0] || '',
+      email: cols[1] || '',
+      role: cols[2] || 'staff',
       photo: ''
     };
   }).filter(u => u.name && u.email);
   const existingEmails = (_usersData.users || []).map(u => u.email);
   const toAdd = newUsers.filter(u => !existingEmails.includes(u.email));
   if (toAdd.length === 0) {
-    alert('追加できるユーザーがありません（既に登録済みか、データが不正です）');
+    alert('追加できるユーザーがありません');
     input.value = '';
     return;
   }
