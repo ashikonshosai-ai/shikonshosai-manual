@@ -183,11 +183,10 @@ async def login(request: Request):
     if individual_pw:
         if password != individual_pw:
             return JSONResponse({"error": "パスワードが違います"}, status_code=401)
-        password_changed = True
     else:
         if password != data.get("password", ""):
             return JSONResponse({"error": "パスワードが違います"}, status_code=401)
-        password_changed = False
+    password_changed = bool(individual_pw)
     for u in data.get("users", []):
         if u.get("email") == email:
             u["last_login"] = date.today().isoformat()
