@@ -410,6 +410,15 @@
           <div style="font-size:14px; font-weight:500;" id="profile-name"></div>
           <div style="font-size:13px; color:#64748b;" id="profile-email"></div>
         </div>
+        <div style="display:flex; align-items:center; gap:16px; margin-bottom:20px; flex-wrap:wrap;">
+          <div id="profile-avatar-preview" style="width:72px; height:72px; border-radius:50%; background:#EEEDFE; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:500; color:#3C3489; overflow:hidden; flex-shrink:0;"></div>
+          <div>
+            <input type="file" id="profile-photo-input" accept="image/*" onchange="previewProfilePhoto(this)" style="display:none;" />
+            <button onclick="document.getElementById('profile-photo-input').click()" style="font-size:12px; padding:6px 12px; border:1px solid #cbd5e1; border-radius:6px; background:white; cursor:pointer;">写真を変更</button>
+            <button onclick="removeProfilePhoto()" style="font-size:12px; padding:6px 12px; border:1px solid #cbd5e1; border-radius:6px; background:white; cursor:pointer; margin-left:8px; color:#E24B4A;">削除</button>
+            <div style="font-size:11px; color:#94a3b8; margin-top:4px;">推奨：正方形・1MB以内</div>
+          </div>
+        </div>
         <div style="display:flex; flex-direction:column; gap:12px;">
           <div>
             <label style="font-size:12px; color:#64748b;">個人メールアドレス</label>
@@ -1404,14 +1413,44 @@ async function doChangePassword() {
 }
 
 // ── マイプロフィール ──────────────────────────────────────────
+function previewProfilePhoto(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 1024 * 1024) {
+    alert('ファイルサイズが大きすぎます。1MB以内の画像を選択してください。');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    _profilePhotoBase64 = e.target.result;
+    const preview = document.getElementById('profile-avatar-preview');
+    preview.innerHTML = `<img src="${_profilePhotoBase64}" style="width:100%;height:100%;object-fit:cover;">`;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeProfilePhoto() {
+  _profilePhotoBase64 = '';
+  const preview = document.getElementById('profile-avatar-preview');
+  preview.innerHTML = `<span>${esc((_currentUser?.name || '?').charAt(0))}</span>`;
+}
+
 async function showProfile() {
   setView('profile');
   render();
   const res = await fetch('/api/users');
   const d = await res.json();
   const user = (d.users || []).find(u => u.id === _currentUser?.id) || _currentUser || {};
+  _profilePhotoBase64 = user.photo || '';
   document.getElementById('profile-name').textContent = user.name || '';
   document.getElementById('profile-email').textContent = user.email || '';
+  const preview = document.getElementById('profile-avatar-preview');
+  if (user.photo) {
+    preview.innerHTML = `<img src="${esc(user.photo)}" style="width:100%;height:100%;object-fit:cover;">`;
+  } else {
+    preview.innerHTML = `<span>${esc((user.name || '?').charAt(0))}</span>`;
+  }
   document.getElementById('profile-personal-email').value = user.personal_email || '';
   document.getElementById('profile-phone').value = user.phone || '';
   document.getElementById('profile-postal').value = user.postal_code || '';
@@ -1439,6 +1478,7 @@ async function saveProfile() {
 
   const body = {
     user_id: _currentUser?.id,
+    photo: _profilePhotoBase64,
     personal_email: document.getElementById('profile-personal-email').value.trim(),
     phone: document.getElementById('profile-phone').value.trim(),
     postal_code: document.getElementById('profile-postal').value.trim(),
@@ -1471,10 +1511,19 @@ async function saveProfile() {
   }
 
   const stored = JSON.parse(localStorage.getItem('manual_user') || '{}');
-  const updatable = ['personal_email','phone','postal_code','address','bank_name','bank_branch','bank_type','bank_number','bank_holder','invoice_number','hourly_rate'];
+  const updatable = ['photo','personal_email','phone','postal_code','address','bank_name','bank_branch','bank_type','bank_number','bank_holder','invoice_number','hourly_rate'];
   updatable.forEach(f => { stored[f] = body[f]; });
   localStorage.setItem('manual_user', JSON.stringify(stored));
   _currentUser = { ..._currentUser, ...stored };
+
+  // ヘッダーアバター更新
+  const avatar = document.getElementById('user-avatar');
+  if (_profilePhotoBase64) {
+    avatar.innerHTML = `<img src="${_profilePhotoBase64}" style="width:100%;height:100%;object-fit:cover;">`;
+  } else {
+    avatar.innerHTML = '';
+    avatar.textContent = (_currentUser?.name || '?').charAt(0);
+  }
 
   document.getElementById('profile-new-pw').value = '';
   document.getElementById('profile-new-pw-confirm').value = '';
@@ -1505,10 +1554,7 @@ function renderUserMgmt() {
         ? `<img src="${esc(u.photo)}" style="width:100%;height:100%;object-fit:cover;">`
         : `<span>${esc(u.name.charAt(0))}</span>`;
       item.innerHTML = `
-        <label style="cursor:pointer;" title="写真を変更">
-          <div class="user-avatar-sm">${avatarHtml}</div>
-          <input type="file" accept="image/*" style="display:none" onchange="uploadUserPhoto(event,${idx})">
-        </label>
+        <div class="user-avatar-sm">${avatarHtml}</div>
         <div style="flex:1;">
           <div style="font-size:14px;font-weight:600;color:#0f172a;">${esc(u.name)}</div>
           <div style="font-size:12px;color:#64748b;">${esc(u.email)}</div>
@@ -1519,6 +1565,7 @@ function renderUserMgmt() {
           <button class="btn btn-gray" onclick="editUserRole(${idx})">役割変更</button>
           <button class="btn btn-gray" onclick="editUserGroup(${idx})">G変更</button>
           <button class="btn btn-gray" onclick="resetUserPassword(${idx})" title="パスワードをリセット（次回ログイン時に再設定）">🔄 PW</button>
+          ${u.photo ? `<button class="btn btn-gray" style="color:#E24B4A;" onclick="deleteUserPhoto(${idx})">写真削除</button>` : ''}
           <button class="btn-text-red" onclick="deleteUser(${idx})">削除</button>
         </div>`;
       list.appendChild(item);
@@ -1611,6 +1658,22 @@ async function uploadUserPhoto(event, idx) {
     renderUserMgmt();
   };
   reader.readAsDataURL(file);
+}
+
+async function deleteUserPhoto(idx) {
+  const u = (_usersData.users || [])[idx];
+  if (!u) return;
+  if (!confirm(`「${u.name}」の写真を削除しますか？`)) return;
+  _usersData.users[idx].photo = '';
+  await saveUsers();
+  if (u.id === _currentUser?.id) {
+    _currentUser.photo = '';
+    localStorage.setItem('manual_user', JSON.stringify(_currentUser));
+    const avatar = document.getElementById('user-avatar');
+    avatar.innerHTML = '';
+    avatar.textContent = _currentUser.name.charAt(0);
+  }
+  renderUserMgmt();
 }
 
 async function resetUserPassword(idx) {
@@ -1880,6 +1943,7 @@ function onReportUserChange(userId) {
 }
 
 let _reportTab = 'entries';
+let _profilePhotoBase64 = '';
 let _allReportsData = {};
 
 function switchReportTab(tab) {

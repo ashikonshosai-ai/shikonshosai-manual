@@ -289,7 +289,7 @@ async def update_profile(request: Request):
     if not user_id:
         raise HTTPException(status_code=401)
     allowed_fields = [
-        "personal_email", "phone", "postal_code", "address",
+        "photo", "personal_email", "phone", "postal_code", "address",
         "bank_name", "bank_branch", "bank_type", "bank_number",
         "bank_holder", "invoice_number", "hourly_rate"
     ]
