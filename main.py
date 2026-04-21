@@ -13,6 +13,7 @@ DROPBOX_REFRESH_TOKEN = os.environ.get("DROPBOX_REFRESH_TOKEN")
 MANUALS_PATH  = "/400000_CC/shikonshosai/manuals.json"
 NOTICES_PATH  = "/400000_CC/shikonshosai/notices.json"
 QA_PATH       = "/400000_CC/shikonshosai/qa.json"
+USERS_PATH    = "/400000_CC/shikonshosai/users.json"
 IMAGES_BASE   = "/400000_CC/shikonshosai/manual_images"
 
 def _get_dropbox_client():
@@ -93,5 +94,42 @@ async def delete_image(request: Request):
     dbx = _get_dropbox_client()
     dbx.files_delete_v2(body["path"])
     return {"ok": True}
+
+@app.on_event("startup")
+async def startup_event():
+    data = await dropbox_get(USERS_PATH)
+    if data is None:
+        await dropbox_save(USERS_PATH, {
+            "password": "shikonshosai",
+            "users": [{"id": "u1", "name": "勝野弘志", "email": "hkcpa416@gmail.com", "role": "admin", "photo": ""}]
+        })
+
+@app.get("/api/users")
+async def get_users():
+    data = await dropbox_get(USERS_PATH)
+    if data is None:
+        return {"users": []}
+    return {"users": data.get("users", [])}
+
+@app.post("/api/users")
+async def save_users(request: Request):
+    data = await request.json()
+    await dropbox_save(USERS_PATH, data)
+    return {"ok": True}
+
+@app.post("/api/auth/login")
+async def login(request: Request):
+    body = await request.json()
+    email = body.get("email", "").strip()
+    password = body.get("password", "")
+    data = await dropbox_get(USERS_PATH)
+    if data is None:
+        return JSONResponse({"error": "ユーザーが見つかりません"}, status_code=401)
+    if password != data.get("password", ""):
+        return JSONResponse({"error": "パスワードが違います"}, status_code=401)
+    user = next((u for u in data.get("users", []) if u.get("email") == email), None)
+    if not user:
+        return JSONResponse({"error": "ユーザーが見つかりません"}, status_code=401)
+    return {k: v for k, v in user.items()}
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

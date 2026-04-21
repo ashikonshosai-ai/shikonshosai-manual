@@ -170,7 +170,17 @@
   .home-qa-card { border: 1px solid #fde68a; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; background: #fffbeb; cursor: pointer; }
   .home-qa-card:hover { background: #fef3c7; }
 
+  /* アプリラッパー */
+  #app { flex: 1; min-height: 0; }
+
+  /* ユーザー管理 */
+  .user-mgmt-item { display:flex; align-items:center; gap:12px; padding:10px 14px; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px; background:#fff; }
+  .user-avatar-sm { width:36px; height:36px; border-radius:50%; background:#93c5fd; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:500; color:#1e3a5f; overflow:hidden; flex-shrink:0; }
+
   /* スマホ対応 */
+  @media (max-width: 768px) {
+    #login-screen > div { width: 90% !important; padding: 24px !important; }
+  }
   @media (max-width: 768px) {
     body { display: block; height: auto; }
 
@@ -252,10 +262,44 @@
 </head>
 <body>
 
+<!-- ログイン画面 -->
+<div id="login-screen" style="display:flex; align-items:center; justify-content:center; flex:1; background:#f8fafc;">
+  <div style="background:white; border-radius:12px; border:0.5px solid #e2e8f0; padding:32px; width:360px;">
+    <div style="background:#1e3a5f; color:white; padding:16px; border-radius:8px; margin-bottom:24px; text-align:center;">
+      <div style="font-size:10px; color:#93c5fd;">税理士法人士魂商才</div>
+      <div style="font-size:18px; font-weight:500;">事務所マニュアル</div>
+    </div>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:12px; color:#64748b;">Gmailアドレス</label>
+      <input id="login-email" type="email" placeholder="xxx@gmail.com"
+        style="width:100%; margin-top:4px; padding:8px 10px; border:0.5px solid #cbd5e1; border-radius:6px; font-size:13px;" />
+    </div>
+    <div style="margin-bottom:20px;">
+      <label style="font-size:12px; color:#64748b;">パスワード</label>
+      <input id="login-password" type="password" placeholder="パスワードを入力"
+        style="width:100%; margin-top:4px; padding:8px 10px; border:0.5px solid #cbd5e1; border-radius:6px; font-size:13px;"
+        onkeydown="if(event.key==='Enter')doLogin()" />
+    </div>
+    <div id="login-error" style="display:none; color:#E24B4A; font-size:12px; margin-bottom:12px;"></div>
+    <button onclick="doLogin()"
+      style="width:100%; padding:10px; background:#1e3a5f; color:white; border:none; border-radius:6px; font-size:14px; cursor:pointer;">
+      ログイン
+    </button>
+  </div>
+</div>
+
+<!-- アプリ本体 -->
+<div id="app" style="display:none; flex-direction:column; flex:1;">
+
 <!-- ヘッダー -->
 <div class="header">
   <span class="header-eyebrow">税理士法人士魂商才</span>
   <span class="header-title">事務所マニュアル</span>
+  <div id="user-info" style="margin-left:auto; display:flex; align-items:center; gap:10px; padding-right:16px;">
+    <div id="user-avatar" style="width:32px; height:32px; border-radius:50%; background:#93c5fd; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:500; color:#1e3a5f; overflow:hidden;"></div>
+    <span id="user-name" style="font-size:13px; color:white;"></span>
+    <button onclick="doLogout()" style="font-size:11px; padding:3px 10px; border:0.5px solid rgba(255,255,255,0.4); border-radius:4px; background:transparent; color:white; cursor:pointer;">ログアウト</button>
+  </div>
 </div>
 
 <!-- 2カラムレイアウト -->
@@ -269,6 +313,7 @@
         ❓ Q&A
         <span id="qa-badge" style="display:none; margin-left:auto; font-size:10px; background:#E24B4A; color:white; border-radius:10px; padding:1px 6px;"></span>
       </div>
+      <div class="nav-item" id="nav-user-mgmt" style="display:none" onclick="showUserMgmt()">⚙ ユーザー管理</div>
     </div>
     <div class="left-pane-list" id="cat-list"></div>
     <div class="left-pane-footer">
@@ -314,9 +359,20 @@
         </div>
         <div id="qa-list"></div>
       </div>
+
+      <!-- ユーザー管理ビュー -->
+      <div id="user-mgmt-view" style="display:none">
+        <div class="right-header">
+          <div class="right-title">ユーザー管理</div>
+          <button class="btn btn-blue" onclick="addUser()">＋ ユーザー追加</button>
+        </div>
+        <div id="user-mgmt-list"></div>
+      </div>
     </div>
   </div>
 </div>
+
+</div><!-- /#app -->
 
 <!-- 編集モーダル -->
 <div class="overlay" id="edit-overlay">
@@ -353,8 +409,11 @@
 let _data = { categories: [] };
 let _noticesData = { notices: [] };
 let _qaData = { questions: [] };
+let _usersData = { users: [] };
+let _currentUser = null;
+let _sessionPassword = null;
 let _selCatId = null;
-let _viewMode = 'home'; // 'home' | 'category' | 'search' | 'qa'
+let _viewMode = 'home'; // 'home' | 'category' | 'search' | 'qa' | 'user-mgmt'
 let _openQId = null;
 let _editCatId = null, _editManualId = null;
 let _editImages = []; // { path, caption, url }
@@ -399,19 +458,31 @@ async function initApp() {
   render();
   renderHome();
 }
-initApp();
+window.addEventListener('load', () => {
+  const stored = localStorage.getItem('manual_user');
+  if (stored) {
+    const user = JSON.parse(stored);
+    _sessionPassword = sessionStorage.getItem('manual_session_pw') || null;
+    showApp(user);
+  }
+});
 
 function setView(mode) {
   _viewMode = mode;
-  document.getElementById('home-view').style.display     = mode === 'home'     ? 'block' : 'none';
-  document.getElementById('category-view').style.display = mode === 'category' ? 'block' : 'none';
-  document.getElementById('search-view').style.display   = mode === 'search'   ? 'block' : 'none';
-  document.getElementById('qa-view').style.display       = mode === 'qa'       ? 'block' : 'none';
+  document.getElementById('home-view').style.display        = mode === 'home'      ? 'block' : 'none';
+  document.getElementById('category-view').style.display    = mode === 'category'  ? 'block' : 'none';
+  document.getElementById('search-view').style.display      = mode === 'search'    ? 'block' : 'none';
+  document.getElementById('qa-view').style.display          = mode === 'qa'        ? 'block' : 'none';
+  document.getElementById('user-mgmt-view').style.display   = mode === 'user-mgmt' ? 'block' : 'none';
   document.getElementById('nav-home').classList.toggle('active', mode === 'home');
   document.getElementById('nav-qa').classList.toggle('active', mode === 'qa');
+  const navUM = document.getElementById('nav-user-mgmt');
+  if (navUM) navUM.classList.toggle('active', mode === 'user-mgmt');
 }
 
 function render() {
+  const navUM = document.getElementById('nav-user-mgmt');
+  if (navUM) navUM.style.display = (_currentUser?.role === 'admin') ? 'flex' : 'none';
   // 左ペイン
   const catList = document.getElementById('cat-list');
   catList.innerHTML = '';
@@ -675,7 +746,7 @@ async function addNotice() {
   if (!content || !content.trim()) return;
   const importantStr = prompt('重要フラグ（重要なら「1」、通常なら「0」）', '0');
   const important = importantStr === '1';
-  const author = prompt('投稿者名（任意）', '') || '';
+  const author = _currentUser?.name || '';
   _noticesData.notices.unshift({ id: 'n_' + Date.now(), content: content.trim(), important, author: author.trim(), created_at: today() });
   await saveNotices();
   renderHome();
@@ -748,7 +819,6 @@ function renderQA() {
         ${answersHtml}
         <div class="qa-reply-form">
           <div class="qa-reply-row">
-            <input class="qa-reply-name" id="qa-name-${q.id}" type="text" placeholder="名前">
             <textarea class="qa-reply-textarea" id="qa-content-${q.id}" placeholder="回答を入力..."></textarea>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
@@ -777,7 +847,7 @@ function toggleQA(id) {
 async function addQuestion() {
   const title = prompt('質問のタイトルを入力してください');
   if (!title || !title.trim()) return;
-  const author = prompt('投稿者名（任意）', '') || '';
+  const author = _currentUser?.name || '';
   if (!_qaData.questions) _qaData.questions = [];
   _qaData.questions.unshift({ id: 'q_' + Date.now(), title: title.trim(), author: author.trim(), created_at: today(), answers: [] });
   await saveQA();
@@ -786,12 +856,11 @@ async function addQuestion() {
 }
 
 async function submitAnswer(qId) {
-  const nameEl = document.getElementById('qa-name-' + qId);
   const contentEl = document.getElementById('qa-content-' + qId);
-  if (!nameEl || !contentEl) return;
-  const name = nameEl.value.trim();
+  if (!contentEl) return;
+  const name = _currentUser?.name || '';
   const content = contentEl.value.trim();
-  if (!name || !content) { alert('名前と回答内容を入力してください'); return; }
+  if (!content) { alert('回答内容を入力してください'); return; }
   const q = _qaData.questions.find(x => x.id === qId);
   if (!q) return;
   if (!q.answers) q.answers = [];
@@ -1008,6 +1077,179 @@ function getEmbedUrl(url) {
 
 function today() { return new Date().toISOString().slice(0, 10); }
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── 認証 ──────────────────────────────────────────
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+  try {
+    const r = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email, password})
+    });
+    if (r.ok) {
+      const user = await r.json();
+      _sessionPassword = password;
+      sessionStorage.setItem('manual_session_pw', password);
+      localStorage.setItem('manual_user', JSON.stringify(user));
+      showApp(user);
+    } else {
+      errEl.style.display = 'block';
+      errEl.textContent = 'メールアドレスまたはパスワードが違います';
+    }
+  } catch {
+    errEl.style.display = 'block';
+    errEl.textContent = 'サーバーに接続できません';
+  }
+}
+
+function doLogout() {
+  localStorage.removeItem('manual_user');
+  sessionStorage.removeItem('manual_session_pw');
+  _currentUser = null;
+  _sessionPassword = null;
+  location.reload();
+}
+
+function showApp(user) {
+  _currentUser = user;
+  document.getElementById('login-screen').style.display = 'none';
+  const app = document.getElementById('app');
+  app.style.display = 'flex';
+  app.style.flexDirection = 'column';
+  app.style.flex = '1';
+  const avatar = document.getElementById('user-avatar');
+  if (user.photo) {
+    avatar.innerHTML = `<img src="${user.photo}" style="width:100%;height:100%;object-fit:cover;">`;
+  } else {
+    avatar.textContent = user.name.charAt(0);
+  }
+  document.getElementById('user-name').textContent = user.name;
+  initApp();
+}
+
+// ── ユーザー管理 ──────────────────────────────────────────
+async function showUserMgmt() {
+  setView('user-mgmt');
+  render();
+  const res = await fetch('/api/users');
+  _usersData = await res.json();
+  renderUserMgmt();
+}
+
+function renderUserMgmt() {
+  const list = document.getElementById('user-mgmt-list');
+  if (!list) return;
+  const users = _usersData.users || [];
+  list.innerHTML = '';
+  if (users.length === 0) {
+    list.innerHTML = '<div class="empty">ユーザーがいません</div>';
+  } else {
+    users.forEach((u, idx) => {
+      const item = document.createElement('div');
+      item.className = 'user-mgmt-item';
+      const avatarHtml = u.photo
+        ? `<img src="${esc(u.photo)}" style="width:100%;height:100%;object-fit:cover;">`
+        : `<span>${esc(u.name.charAt(0))}</span>`;
+      item.innerHTML = `
+        <label style="cursor:pointer;" title="写真を変更">
+          <div class="user-avatar-sm">${avatarHtml}</div>
+          <input type="file" accept="image/*" style="display:none" onchange="uploadUserPhoto(event,${idx})">
+        </label>
+        <div style="flex:1;">
+          <div style="font-size:14px;font-weight:600;color:#0f172a;">${esc(u.name)}</div>
+          <div style="font-size:12px;color:#64748b;">${esc(u.email)}</div>
+          <div style="font-size:11px;color:#94a3b8;">${u.role === 'admin' ? '管理者' : 'スタッフ'}</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-gray" onclick="editUserName(${idx})">名前変更</button>
+          <button class="btn-text-red" onclick="deleteUser(${idx})">削除</button>
+        </div>`;
+      list.appendChild(item);
+    });
+  }
+  const pwArea = document.createElement('div');
+  pwArea.style.cssText = 'margin-top:16px;padding-top:16px;border-top:1px solid #e2e8f0;';
+  pwArea.innerHTML = `<button class="btn btn-gray" onclick="changePassword()">🔑 共通パスワードを変更</button>`;
+  list.appendChild(pwArea);
+}
+
+async function addUser() {
+  const name = prompt('名前を入力してください');
+  if (!name || !name.trim()) return;
+  const email = prompt('Gmailアドレスを入力してください');
+  if (!email || !email.trim()) return;
+  const roleStr = prompt('役割を入力してください（admin または staff）', 'staff');
+  const role = roleStr === 'admin' ? 'admin' : 'staff';
+  _usersData.users = _usersData.users || [];
+  _usersData.users.push({ id: 'u_' + Date.now(), name: name.trim(), email: email.trim(), role, photo: '' });
+  await saveUsers();
+  renderUserMgmt();
+}
+
+async function deleteUser(idx) {
+  const u = (_usersData.users || [])[idx];
+  if (!u) return;
+  if (u.id === _currentUser?.id) { alert('自分自身は削除できません'); return; }
+  if (!confirm(`「${u.name}」を削除しますか？`)) return;
+  _usersData.users.splice(idx, 1);
+  await saveUsers();
+  renderUserMgmt();
+}
+
+async function editUserName(idx) {
+  const u = (_usersData.users || [])[idx];
+  if (!u) return;
+  const name = prompt('新しい名前を入力してください', u.name);
+  if (!name || !name.trim() || name.trim() === u.name) return;
+  _usersData.users[idx].name = name.trim();
+  await saveUsers();
+  renderUserMgmt();
+}
+
+async function changePassword() {
+  const newPw = prompt('新しい共通パスワードを入力してください');
+  if (!newPw || !newPw.trim()) return;
+  if (!confirm(`パスワードを変更します。よろしいですか？`)) return;
+  _sessionPassword = newPw.trim();
+  sessionStorage.setItem('manual_session_pw', _sessionPassword);
+  await saveUsers();
+  alert('パスワードを変更しました');
+}
+
+async function uploadUserPhoto(event, idx) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    _usersData.users[idx].photo = e.target.result;
+    await saveUsers();
+    if (_usersData.users[idx].id === _currentUser?.id) {
+      _currentUser.photo = e.target.result;
+      localStorage.setItem('manual_user', JSON.stringify(_currentUser));
+      const avatar = document.getElementById('user-avatar');
+      avatar.innerHTML = `<img src="${e.target.result}" style="width:100%;height:100%;object-fit:cover;">`;
+    }
+    renderUserMgmt();
+  };
+  reader.readAsDataURL(file);
+}
+
+async function saveUsers() {
+  if (!_sessionPassword) {
+    alert('セッションが切れています。再ログインしてください。');
+    doLogout();
+    return;
+  }
+  await fetch('/api/users', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ password: _sessionPassword, users: _usersData.users || [] })
+  });
+}
 
 // オーバーレイ外クリックで閉じる
 document.getElementById('edit-overlay').addEventListener('click', e => {
