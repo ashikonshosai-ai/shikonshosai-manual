@@ -575,6 +575,7 @@
             <button class="btn btn-gray" style="padding:4px 10px;" onclick="nextInvoiceAdminMonth()">▶</button>
           </div>
           <button id="btn-invoices-excel" style="display:none; padding:6px 14px; border:1px solid #e2e8f0; border-radius:6px; background:#f0fdf4; font-size:13px; cursor:pointer;" onclick="downloadInvoiceExcel()">📥 Excel</button>
+          <button id="btn-invoices-zip" style="display:none; padding:6px 14px; background:#1e3a5f; color:white; border:none; border-radius:6px; font-size:13px; cursor:pointer;" onclick="downloadInvoicesZip()">📦 ZIP一括</button>
         </div>
         <div id="invoice-admin-list" style="margin-top:12px;"></div>
       </div>
@@ -1920,7 +1921,7 @@ function updateInvoiceStatusBadge() {
 async function submitInvoice() {
   const user = _invoiceProfile || _currentUser || {};
   const hourlyRate = Number(user.hourly_rate) || 0;
-  const { total } = calcInvoiceTotal();
+  const { subtotal, tax, total } = calcInvoiceTotal();
   if (_invoiceStatus?.status === 'pending') {
     if (!confirm('既に提出済みです。再提出しますか？')) return;
   }
@@ -1931,6 +1932,14 @@ async function submitInvoice() {
     invoice_date: document.getElementById('inv-date').value,
     due_date: document.getElementById('inv-due').value,
     subject: document.getElementById('inv-subject').value,
+    address: user.address || '',
+    phone: user.phone || '',
+    bank_name: user.bank_name || '',
+    bank_branch: user.bank_branch || '',
+    bank_type: user.bank_type || '',
+    bank_number: user.bank_number || '',
+    bank_holder: user.bank_holder || '',
+    invoice_number: user.invoice_number || '',
     items: _invoiceItems.map(item => ({
       company: item.company, hours: item.hours, hours_display: item.hours_display,
       unit_price: hourlyRate, amount: Math.round(item.hours * hourlyRate)
@@ -1938,7 +1947,7 @@ async function submitInvoice() {
     special_items: _invoiceSpecialItems.map(item => ({
       content: item.label, amount: Number(item.amount) || 0
     })),
-    total,
+    subtotal, tax, total,
   };
   const r = await fetch('/api/invoices/submit', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
@@ -1964,8 +1973,11 @@ async function showInvoiceAdmin() {
 async function loadInvoiceAdmin() {
   const [y, m] = _invoiceAdminMonth.split('-');
   document.getElementById('invoice-admin-month-label').textContent = `${y}年${parseInt(m)}月`;
+  const isAdmin = _currentUser?.role === 'admin';
   const excelBtn = document.getElementById('btn-invoices-excel');
-  if (excelBtn) excelBtn.style.display = _currentUser?.role === 'admin' ? 'inline-block' : 'none';
+  if (excelBtn) excelBtn.style.display = isAdmin ? 'inline-block' : 'none';
+  const zipBtn = document.getElementById('btn-invoices-zip');
+  if (zipBtn) zipBtn.style.display = isAdmin ? 'inline-block' : 'none';
   const listEl = document.getElementById('invoice-admin-list');
   listEl.innerHTML = '<div style="padding:20px; text-align:center; color:#94a3b8;">読み込み中...</div>';
   try {
@@ -2140,6 +2152,11 @@ function nextInvoiceAdminMonth() {
 
 function downloadInvoiceExcel() {
   const url = `/api/invoices/excel/${_invoiceAdminMonth}?user_id=${encodeURIComponent(_currentUser?.id || '')}`;
+  window.open(url, '_blank');
+}
+
+function downloadInvoicesZip() {
+  const url = `/api/invoices/zip/${_invoiceAdminMonth}?user_id=${encodeURIComponent(_currentUser?.id || '')}`;
   window.open(url, '_blank');
 }
 

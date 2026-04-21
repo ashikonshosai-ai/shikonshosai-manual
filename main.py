@@ -1,4 +1,4 @@
-import os, json, httpx, asyncio, time, io
+import os, json, httpx, asyncio, time, io, zipfile
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from datetime import date
@@ -405,6 +405,131 @@ async def auth_ping(request: Request):
     _cache_delete("users")
     return {"ok": True}
 
+def generate_invoice_pdf(inv: dict) -> io.BytesIO:
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    pdfmetrics.registerFont(UnicodeCIDFont('HeiseiKakuGo-W5'))
+    font = 'HeiseiKakuGo-W5'
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=A4)
+    width, height = A4
+
+    c.setFont(font, 20)
+    c.drawCentredString(width / 2, height - 60, "請　求　書")
+
+    c.setFont(font, 10)
+    c.drawString(380, height - 90, f"請求日：{inv.get('invoice_date', '')}")
+    c.drawString(380, height - 105, f"支払期限：{inv.get('due_date', '')}")
+
+    c.setFont(font, 12)
+    c.drawString(40, height - 120, "税理士法人　士魂商才　御中")
+
+    c.setFont(font, 10)
+    c.drawString(350, height - 140, inv.get('user_name', ''))
+    if inv.get('address'):
+        c.drawString(350, height - 155, inv.get('address', ''))
+    if inv.get('phone'):
+        c.drawString(350, height - 170, f"TEL: {inv.get('phone', '')}")
+    if inv.get('invoice_number'):
+        c.drawString(350, height - 185, f"登録番号: {inv.get('invoice_number', '')}")
+
+    c.setFont(font, 13)
+    c.drawString(40, height - 210, f"ご請求金額（税込）：¥{inv.get('total', 0):,} 円")
+    c.line(40, height - 218, 300, height - 218)
+
+    y = height - 250
+    c.setFont(font, 9)
+    c.setFillColorRGB(1, 1, 1)
+    c.rect(40, y - 2, 520, 16, fill=1)
+    c.setFillColorRGB(0.118, 0.227, 0.373)
+    c.rect(40, y - 2, 520, 16, fill=1)
+    c.setFillColorRGB(1, 1, 1)
+    c.drawString(44, y + 2, "品目")
+    c.drawString(270, y + 2, "作業時間")
+    c.drawString(340, y + 2, "単価（円/時）")
+    c.drawString(450, y + 2, "金額（円）")
+    c.setFillColorRGB(0, 0, 0)
+    y -= 20
+
+    for item in inv.get('items', []):
+        c.setFont(font, 9)
+        c.drawString(44, y, item.get('company', ''))
+        c.drawString(270, y, item.get('hours_display', ''))
+        c.drawString(340, y, f"{item.get('unit_price', 0):,}")
+        c.drawString(450, y, f"{item.get('amount', 0):,}")
+        c.line(40, y - 4, 560, y - 4)
+        y -= 18
+
+    for item in inv.get('special_items', []):
+        c.drawString(44, y, item.get('content', ''))
+        c.drawString(270, y, "—")
+        c.drawString(340, y, "—")
+        c.drawString(450, y, f"{item.get('amount', 0):,}")
+        c.line(40, y - 4, 560, y - 4)
+        y -= 18
+
+    y -= 8
+    subtotal = inv.get('subtotal', 0)
+    tax = inv.get('tax', 0)
+    total = inv.get('total', 0)
+    c.setFont(font, 9)
+    c.drawString(370, y, "小計")
+    c.drawString(450, y, f"¥{subtotal:,}")
+    y -= 16
+    c.drawString(370, y, "消費税（10%）")
+    c.drawString(450, y, f"¥{tax:,}")
+    y -= 4
+    c.line(360, y, 520, y)
+    y -= 14
+    c.setFont(font, 11)
+    c.drawString(370, y, "合計（税込）")
+    c.drawString(450, y, f"¥{total:,}")
+
+    y -= 40
+    c.setFont(font, 9)
+    bank_parts = [inv.get('bank_name', ''), inv.get('bank_branch', ''),
+                  f"（{inv.get('bank_type', '')}）", inv.get('bank_number', ''),
+                  inv.get('bank_holder', '')]
+    bank_str = "　".join(p for p in bank_parts if p and p != '（）')
+    if bank_str:
+        c.drawString(40, y, f"振込先：{bank_str}")
+
+    c.save()
+    buf.seek(0)
+    return buf
+
+@app.get("/api/invoices/zip/{year_month}")
+async def download_invoices_zip(year_month: str, user_id: str = Query(None)):
+    if not user_id:
+        raise HTTPException(status_code=401)
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+    if not current_user or current_user.get("role") != "admin":
+        raise HTTPException(status_code=403)
+    invoices_data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
+    target = [inv for inv in invoices_data.get("invoices", [])
+              if inv.get("year_month") == year_month and inv.get("status") == "approved"]
+    if not target:
+        raise HTTPException(status_code=404, detail="承認済み請求書がありません")
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for inv in target:
+            pdf_buf = generate_invoice_pdf(inv)
+            safe_name = inv.get('user_name', inv.get('user_id', 'unknown'))
+            zf.writestr(f"{safe_name}_{year_month}_請求書.pdf", pdf_buf.getvalue())
+    zip_buf.seek(0)
+    from urllib.parse import quote
+    zip_filename = quote(f"請求書一括_{year_month}.zip")
+    return StreamingResponse(
+        zip_buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{zip_filename}"}
+    )
+
 @app.get("/api/invoices/excel/{year_month}")
 async def download_invoices_excel(year_month: str, user_id: str = Query(None)):
     if not user_id:
@@ -495,8 +620,18 @@ async def submit_invoice(request: Request):
         "invoice_date": body.get("invoice_date", ""),
         "due_date": body.get("due_date", ""),
         "subject": body.get("subject", ""),
+        "address": body.get("address", ""),
+        "phone": body.get("phone", ""),
+        "bank_name": body.get("bank_name", ""),
+        "bank_branch": body.get("bank_branch", ""),
+        "bank_type": body.get("bank_type", ""),
+        "bank_number": body.get("bank_number", ""),
+        "bank_holder": body.get("bank_holder", ""),
+        "invoice_number": body.get("invoice_number", ""),
         "items": body.get("items", []),
         "special_items": body.get("special_items", []),
+        "subtotal": body.get("subtotal", 0),
+        "tax": body.get("tax", 0),
         "total": body.get("total", 0),
     }
     data["invoices"].append(new_inv)
