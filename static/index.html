@@ -366,6 +366,10 @@
           <div class="right-title">ユーザー管理</div>
           <button class="btn btn-blue" onclick="addUser()">＋ ユーザー追加</button>
         </div>
+        <div style="margin-bottom:16px;">
+          <div style="font-size:12px; color:#64748b; margin-bottom:6px;">CSVで一括登録（name,email,role）</div>
+          <input type="file" id="csv-import" accept=".csv" onchange="importUsersCSV(this)" />
+        </div>
         <div id="user-mgmt-list"></div>
       </div>
     </div>
@@ -1249,6 +1253,36 @@ async function saveUsers() {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ password: _sessionPassword, users: _usersData.users || [] })
   });
+}
+
+async function importUsersCSV(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const text = await file.text();
+  const lines = text.trim().split('\n');
+  const headers = lines[0].split(',').map(h => h.trim());
+  const newUsers = lines.slice(1).map((line, i) => {
+    const cols = line.split(',').map(c => c.trim());
+    return {
+      id: 'u_' + Date.now() + '_' + i,
+      name: cols[headers.indexOf('name')] || '',
+      email: cols[headers.indexOf('email')] || '',
+      role: cols[headers.indexOf('role')] || 'staff',
+      photo: ''
+    };
+  }).filter(u => u.name && u.email);
+  const existingEmails = (_usersData.users || []).map(u => u.email);
+  const toAdd = newUsers.filter(u => !existingEmails.includes(u.email));
+  if (toAdd.length === 0) {
+    alert('追加できるユーザーがありません（既に登録済みか、データが不正です）');
+    input.value = '';
+    return;
+  }
+  _usersData.users = [...(_usersData.users || []), ...toAdd];
+  await saveUsers();
+  renderUserMgmt();
+  input.value = '';
+  alert(`${toAdd.length}件のユーザーを登録しました`);
 }
 
 // オーバーレイ外クリックで閉じる
