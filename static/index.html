@@ -422,6 +422,7 @@
             <span id="report-month-label" style="font-size:13px; font-weight:600; min-width:80px; text-align:center;"></span>
             <button class="btn btn-gray" style="padding:4px 10px;" onclick="nextReportMonth()">▶</button>
           </div>
+          <button id="btn-excel-download" style="display:none; padding:6px 14px; border:1px solid #e2e8f0; border-radius:6px; background:#f0fdf4; font-size:13px; cursor:pointer;" onclick="downloadGroupExcel()">📥 Excel</button>
           <button class="btn btn-blue" onclick="document.getElementById('input-date').focus()">＋ 追加</button>
         </div>
         <div id="report-summary" style="display:flex; gap:16px; padding:10px 14px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:12px; font-size:13px; flex-wrap:wrap;"></div>
@@ -1576,6 +1577,8 @@ function renderReport() {
   const canViewOthers = role === 'admin' || role === 'leader';
   const tabGroup = document.getElementById('tab-group');
   if (tabGroup) tabGroup.style.display = canViewOthers ? 'inline-block' : 'none';
+  const btnExcel = document.getElementById('btn-excel-download');
+  if (btnExcel) btnExcel.style.display = canViewOthers ? 'inline-block' : 'none';
   if (canViewOthers) {
     sel.style.display = 'inline-block';
     if (sel.options.length === 0) {
@@ -1866,8 +1869,7 @@ async function renderGroupTab() {
   ).join('');
 
   el.innerHTML = `
-    <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px;">
-      <button onclick="downloadGroupExcel()" style="padding:6px 14px; border:1px solid #e2e8f0; border-radius:6px; background:#f0fdf4; font-size:13px; cursor:pointer;">📥 Excel</button>
+    <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
       <button onclick="refreshGroupReport()" style="padding:6px 14px; border:1px solid #e2e8f0; border-radius:6px; background:#f8fafc; font-size:13px; cursor:pointer;">🔄 更新</button>
     </div>
     <div style="overflow-x:auto;">
