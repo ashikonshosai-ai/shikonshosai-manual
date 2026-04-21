@@ -19,6 +19,7 @@ QA_PATH       = "/400000_CC/shikonshosai/qa.json"
 USERS_PATH    = "/400000_CC/shikonshosai/users.json"
 IMAGES_BASE   = "/400000_CC/shikonshosai/manual_images"
 REPORTS_BASE  = "/外注先共有/400000_CC/shikonshosai/reports"
+INVOICES_PATH = "/外注先共有/400000_CC/shikonshosai/invoices.json"
 
 _cache: dict = {}
 _CACHE_TTL = 60
@@ -402,6 +403,151 @@ async def auth_ping(request: Request):
             break
     await dropbox_save(USERS_PATH, users_data)
     _cache_delete("users")
+    return {"ok": True}
+
+@app.get("/api/invoices/excel/{year_month}")
+async def download_invoices_excel(year_month: str, user_id: str = Query(None)):
+    if not user_id:
+        raise HTTPException(status_code=401)
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+    if not current_user or current_user.get("role") != "admin":
+        raise HTTPException(status_code=403)
+    data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
+    invoices = [inv for inv in data.get("invoices", [])
+                if inv.get("year_month") == year_month and inv.get("status") == "approved"]
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"{year_month}承認済み請求書"
+    header_fill = PatternFill(fill_type="solid", fgColor="2563EB")
+    header_font = Font(bold=True, color="FFFFFF")
+    center = Alignment(horizontal="center")
+    headers = ["スタッフ名", "提出日", "請求金額（円）", "承認日", "承認者"]
+    for col, val in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=val)
+        cell.font = header_font; cell.fill = header_fill; cell.alignment = center
+    for row_idx, inv in enumerate(invoices, 2):
+        ws.cell(row=row_idx, column=1, value=inv.get("user_name", ""))
+        ws.cell(row=row_idx, column=2, value=inv.get("submitted_at", ""))
+        ws.cell(row=row_idx, column=3, value=inv.get("total", 0))
+        ws.cell(row=row_idx, column=4, value=inv.get("approved_at", ""))
+        ws.cell(row=row_idx, column=5, value=inv.get("approved_by", ""))
+    for col_letter, width in [("A",20),("B",14),("C",16),("D",14),("E",16)]:
+        ws.column_dimensions[col_letter].width = width
+    buf = io.BytesIO()
+    wb.save(buf); buf.seek(0)
+    from urllib.parse import quote
+    filename = quote(f"請求書一覧_{year_month}.xlsx")
+    return StreamingResponse(buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"})
+
+@app.get("/api/invoices/my/{user_id}/{year_month}")
+async def get_my_invoice(user_id: str, year_month: str):
+    data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
+    inv = next((i for i in data.get("invoices", [])
+                if i.get("user_id") == user_id and i.get("year_month") == year_month), None)
+    return inv or {}
+
+@app.get("/api/invoices")
+async def get_invoices(year_month: str = Query(None), user_id: str = Header(None)):
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+    if not current_user:
+        raise HTTPException(status_code=401)
+    role = current_user.get("role", "staff")
+    if role == "admin":
+        target_ids = {u["id"] for u in users_data["users"]}
+    elif role == "leader":
+        my_group = current_user.get("group", "")
+        target_ids = {u["id"] for u in users_data["users"] if u.get("group") == my_group}
+    else:
+        raise HTTPException(status_code=403)
+    data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
+    invoices = [i for i in data.get("invoices", []) if i.get("user_id") in target_ids]
+    if year_month:
+        invoices = [i for i in invoices if i.get("year_month") == year_month]
+    return {"invoices": invoices}
+
+@app.post("/api/invoices/submit")
+async def submit_invoice(request: Request):
+    body = await request.json()
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401)
+    year_month = body.get("year_month", "")
+    data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
+    data["invoices"] = [i for i in data.get("invoices", [])
+                        if not (i.get("user_id") == user_id and i.get("year_month") == year_month)]
+    new_inv = {
+        "id": f"inv_{int(time.time())}",
+        "user_id": user_id,
+        "user_name": body.get("user_name", ""),
+        "year_month": year_month,
+        "status": "pending",
+        "submitted_at": date.today().isoformat(),
+        "approved_at": "", "approved_by": "",
+        "rejected_at": "", "rejected_by": "", "reject_reason": "",
+        "invoice_date": body.get("invoice_date", ""),
+        "due_date": body.get("due_date", ""),
+        "subject": body.get("subject", ""),
+        "items": body.get("items", []),
+        "special_items": body.get("special_items", []),
+        "total": body.get("total", 0),
+    }
+    data["invoices"].append(new_inv)
+    await dropbox_save(INVOICES_PATH, data)
+    return {"ok": True, "invoice": new_inv}
+
+@app.post("/api/invoices/approve")
+async def approve_invoice(request: Request):
+    body = await request.json()
+    invoice_id = body.get("invoice_id")
+    approver_id = body.get("approver_id")
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    approver = next((u for u in users_data.get("users", []) if u.get("id") == approver_id), None)
+    if not approver or approver.get("role", "staff") == "staff":
+        raise HTTPException(status_code=403)
+    data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
+    for inv in data.get("invoices", []):
+        if inv.get("id") == invoice_id:
+            inv["status"] = "approved"
+            inv["approved_at"] = date.today().isoformat()
+            inv["approved_by"] = approver.get("name", approver_id)
+            break
+    else:
+        raise HTTPException(status_code=404)
+    await dropbox_save(INVOICES_PATH, data)
+    return {"ok": True}
+
+@app.post("/api/invoices/reject")
+async def reject_invoice(request: Request):
+    body = await request.json()
+    invoice_id = body.get("invoice_id")
+    rejector_id = body.get("rejector_id")
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    rejector = next((u for u in users_data.get("users", []) if u.get("id") == rejector_id), None)
+    if not rejector or rejector.get("role", "staff") == "staff":
+        raise HTTPException(status_code=403)
+    data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
+    for inv in data.get("invoices", []):
+        if inv.get("id") == invoice_id:
+            inv["status"] = "rejected"
+            inv["rejected_at"] = date.today().isoformat()
+            inv["rejected_by"] = rejector.get("name", rejector_id)
+            inv["reject_reason"] = body.get("reason", "")
+            break
+    else:
+        raise HTTPException(status_code=404)
+    await dropbox_save(INVOICES_PATH, data)
     return {"ok": True}
 
 @app.get("/api/invoice/{user_id}/{year_month}")
