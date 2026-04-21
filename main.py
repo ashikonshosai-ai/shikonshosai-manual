@@ -160,11 +160,35 @@ async def login(request: Request):
     data = await dropbox_get(USERS_PATH)
     if data is None:
         return JSONResponse({"error": "ユーザーが見つかりません"}, status_code=401)
-    if password != data.get("password", ""):
-        return JSONResponse({"error": "パスワードが違います"}, status_code=401)
     user = next((u for u in data.get("users", []) if u.get("email") == email), None)
     if not user:
         return JSONResponse({"error": "ユーザーが見つかりません"}, status_code=401)
-    return {k: v for k, v in user.items()}
+    individual_pw = user.get("individual_password", "")
+    if individual_pw:
+        if password != individual_pw:
+            return JSONResponse({"error": "パスワードが違います"}, status_code=401)
+        password_changed = True
+    else:
+        if password != data.get("password", ""):
+            return JSONResponse({"error": "パスワードが違います"}, status_code=401)
+        password_changed = False
+    return {**{k: v for k, v in user.items() if k != "individual_password"}, "password_changed": password_changed}
+
+@app.post("/api/auth/change_password")
+async def change_password(request: Request):
+    body = await request.json()
+    email = body.get("email", "").strip()
+    new_password = body.get("new_password", "")
+    data = await dropbox_get(USERS_PATH)
+    if data is None:
+        return JSONResponse({"error": "ユーザーが見つかりません"}, status_code=404)
+    for user in data.get("users", []):
+        if user.get("email") == email:
+            user["individual_password"] = new_password
+            break
+    else:
+        return JSONResponse({"error": "ユーザーが見つかりません"}, status_code=404)
+    await dropbox_save(USERS_PATH, data)
+    return {"ok": True}
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

@@ -298,6 +298,30 @@
   </div>
 </div>
 
+<!-- パスワード変更画面（初回ログイン時） -->
+<div id="change-password-screen" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+  <div style="background:white; border-radius:12px; padding:32px; width:360px; max-width:90vw;">
+    <div style="font-size:16px; font-weight:500; margin-bottom:6px;">パスワードを変更してください</div>
+    <div style="font-size:12px; color:#64748b; margin-bottom:20px;">初回ログインのため、個人パスワードを設定してください。</div>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:12px; color:#64748b;">新しいパスワード</label>
+      <input id="new-password" type="password" placeholder="6文字以上"
+        style="width:100%; margin-top:4px; padding:8px 10px; border:0.5px solid #cbd5e1; border-radius:6px; font-size:13px;" />
+    </div>
+    <div style="margin-bottom:20px;">
+      <label style="font-size:12px; color:#64748b;">確認（もう一度入力）</label>
+      <input id="new-password-confirm" type="password" placeholder="同じパスワードを入力"
+        style="width:100%; margin-top:4px; padding:8px 10px; border:0.5px solid #cbd5e1; border-radius:6px; font-size:13px;"
+        onkeydown="if(event.key==='Enter')doChangePassword()" />
+    </div>
+    <div id="change-pw-error" style="display:none; color:#E24B4A; font-size:12px; margin-bottom:12px;"></div>
+    <button onclick="doChangePassword()"
+      style="width:100%; padding:10px; background:#1e3a5f; color:white; border:none; border-radius:6px; font-size:14px; cursor:pointer;">
+      変更して開始
+    </button>
+  </div>
+</div>
+
 <!-- アプリ本体 -->
 <div id="app" style="display:none; flex-direction:column; flex:1;">
 
@@ -1203,8 +1227,14 @@ function doLogout() {
 }
 
 function showApp(user) {
-  _currentUser = user;
   document.getElementById('login-screen').style.display = 'none';
+  if (!user.password_changed) {
+    document.getElementById('change-password-screen').style.display = 'flex';
+    _currentUser = user;
+    return;
+  }
+  _currentUser = user;
+  document.getElementById('change-password-screen').style.display = 'none';
   const app = document.getElementById('app');
   app.style.display = 'flex';
   app.style.flexDirection = 'column';
@@ -1217,6 +1247,36 @@ function showApp(user) {
   }
   document.getElementById('user-name').textContent = user.name;
   initApp();
+}
+
+async function doChangePassword() {
+  const newPw   = document.getElementById('new-password').value;
+  const confirm = document.getElementById('new-password-confirm').value;
+  const errEl   = document.getElementById('change-pw-error');
+  errEl.style.display = 'none';
+  if (newPw.length < 6) {
+    errEl.style.display = 'block';
+    errEl.textContent = '6文字以上で入力してください';
+    return;
+  }
+  if (newPw !== confirm) {
+    errEl.style.display = 'block';
+    errEl.textContent = 'パスワードが一致しません';
+    return;
+  }
+  const r = await fetch('/api/auth/change_password', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ email: _currentUser.email, new_password: newPw })
+  });
+  if (r.ok) {
+    _currentUser.password_changed = true;
+    localStorage.setItem('manual_user', JSON.stringify(_currentUser));
+    showApp(_currentUser);
+  } else {
+    errEl.style.display = 'block';
+    errEl.textContent = 'パスワードの変更に失敗しました';
+  }
 }
 
 // ── ユーザー管理 ──────────────────────────────────────────
@@ -1252,8 +1312,9 @@ function renderUserMgmt() {
           <div style="font-size:12px;color:#64748b;">${esc(u.email)}</div>
           <div style="font-size:11px;color:#94a3b8;">${u.role === 'admin' ? '管理者' : 'スタッフ'}</div>
         </div>
-        <div style="display:flex;gap:6px;">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
           <button class="btn btn-gray" onclick="editUserName(${idx})">名前変更</button>
+          <button class="btn btn-gray" onclick="resetUserPassword(${idx})" title="パスワードをリセット（次回ログイン時に再設定）">🔄 PW</button>
           <button class="btn-text-red" onclick="deleteUser(${idx})">削除</button>
         </div>`;
       list.appendChild(item);
@@ -1324,6 +1385,15 @@ async function uploadUserPhoto(event, idx) {
     renderUserMgmt();
   };
   reader.readAsDataURL(file);
+}
+
+async function resetUserPassword(idx) {
+  const u = (_usersData.users || [])[idx];
+  if (!u) return;
+  if (!confirm(`「${u.name}」のパスワードをリセットします。\n次回ログイン時に共通パスワードで入れて、個人パスワードの再設定が求められます。`)) return;
+  _usersData.users[idx].individual_password = '';
+  await saveUsers();
+  alert(`${u.name} のパスワードをリセットしました`);
 }
 
 async function saveUsers() {
