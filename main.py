@@ -404,4 +404,21 @@ async def auth_ping(request: Request):
     _cache_delete("users")
     return {"ok": True}
 
+@app.get("/api/invoice/{user_id}/{year_month}")
+async def get_invoice_data(user_id: str, year_month: str):
+    path = f"{REPORTS_BASE}/{user_id}_{year_month}.json"
+    data = await dropbox_get(path) or {"entries": []}
+    companies: dict = {}
+    for e in data.get("entries", []):
+        company = e.get("company_name") or "（会社名なし）"
+        companies[company] = companies.get(company, 0) + e.get("hours", 0)
+    def to_hhmm(h: float) -> str:
+        hrs = int(h); mins = round((h - hrs) * 60)
+        return f"{hrs}:{mins:02d}"
+    items = [{"company": c, "hours": round(h * 100) / 100, "hours_display": to_hhmm(h)}
+             for c, h in sorted(companies.items(), key=lambda x: -x[1])]
+    total_hours = sum(companies.values())
+    return {"items": items, "total_hours": round(total_hours * 100) / 100,
+            "total_hours_display": to_hhmm(total_hours)}
+
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
