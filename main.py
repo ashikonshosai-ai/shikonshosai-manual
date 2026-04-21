@@ -509,7 +509,7 @@ async def download_invoices_zip(year_month: str, user_id: str = Query(None)):
     if not users_data:
         raise HTTPException(status_code=500)
     current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
-    if not current_user or current_user.get("role") != "admin":
+    if not current_user or current_user.get("role") not in ["admin", "soumu"]:
         raise HTTPException(status_code=403)
     invoices_data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
     target = [inv for inv in invoices_data.get("invoices", [])
@@ -539,7 +539,7 @@ async def download_invoices_excel(year_month: str, user_id: str = Query(None)):
     if not users_data:
         raise HTTPException(status_code=500)
     current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
-    if not current_user or current_user.get("role") != "admin":
+    if not current_user or current_user.get("role", "staff") not in ["admin", "soumu"]:
         raise HTTPException(status_code=403)
     data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
     invoices = [inv for inv in data.get("invoices", [])
@@ -618,7 +618,7 @@ async def get_invoices(year_month: str = Query(None), user_id: str = Header(None
     if not current_user:
         raise HTTPException(status_code=401)
     role = current_user.get("role", "staff")
-    if role == "admin":
+    if role == "admin" or role == "soumu":
         target_ids = {u["id"] for u in users_data["users"]}
     elif role == "leader":
         my_group = current_user.get("group", "")
@@ -748,6 +748,10 @@ async def get_pledges(user_id: str = Header(None)):
     pledges = data.get("pledges", [])
     if role == "staff":
         pledges = [p for p in pledges if p.get("user_id") == user_id]
+    elif role == "leader":
+        my_group = current_user.get("group", "")
+        group_user_ids = {u["id"] for u in users_data.get("users", []) if u.get("group") == my_group}
+        pledges = [p for p in pledges if p.get("user_id") in group_user_ids]
     return {"pledges": pledges}
 
 
@@ -772,6 +776,105 @@ async def submit_pledge(request: Request):
     data["pledges"].append(new_pledge)
     await dropbox_save(PLEDGES_PATH, data)
     return {"ok": True, "pledge": new_pledge}
+
+
+def generate_pledge_pdf(pledge: dict) -> io.BytesIO:
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    pdfmetrics.registerFont(UnicodeCIDFont('HeiseiKakuGo-W5'))
+    font = 'HeiseiKakuGo-W5'
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=A4)
+    width, height = A4
+
+    c.setFont(font, 16)
+    c.drawCentredString(width / 2, height - 60, "テレワーク誓約書")
+
+    c.setFont(font, 9)
+    c.drawString(40, height - 90, f"税理士法人士魂・商才")
+    c.drawString(380, height - 90, f"スタッフ氏名：{pledge.get('user_name', '')}")
+    c.drawString(380, height - 105, f"対象月：{pledge.get('year_month', '')}")
+    c.drawString(380, height - 120, f"提出日：{pledge.get('submitted_at', '')}")
+
+    c.line(40, height - 130, width - 40, height - 130)
+
+    c.setFont(font, 8)
+    intro = "私は、税理士法人士魂・商才（以下「甲」という。）から業務の委託を受け、テレワークにより業務を遂行するにあたり、以下の事項を遵守することを誓約します。"
+    c.drawString(40, height - 148, intro[:60])
+    c.drawString(40, height - 160, intro[60:])
+
+    articles = [
+        "1. 契約及び法令の遵守",
+        "2. 守秘義務・情報管理",
+        "3. 情報セキュリティの確保",
+        "4. 作業環境の適正化",
+        "5. 資料・機器の管理・返却",
+        "6. 再委託の禁止",
+        "7. 事故等の報告義務",
+        "8. 成果物の納期・品質",
+        "9. 責任",
+    ]
+    y = height - 180
+    for article in articles:
+        c.drawString(50, y, article)
+        y -= 14
+
+    y -= 8
+    c.setFont(font, 9)
+    c.drawString(40, y, "【月次チェックリスト確認済み項目】")
+    y -= 14
+    c.setFont(font, 8)
+    for item in pledge.get('checklist', []):
+        c.drawString(50, y, f"✓ {item}")
+        y -= 13
+
+    y -= 10
+    c.line(40, y, width - 40, y)
+    y -= 16
+    c.setFont(font, 9)
+    c.drawString(40, y, "以上の内容を十分に理解し、誠実に遵守することを誓約します。")
+    y -= 20
+    c.drawString(300, y, "甲：税理士法人士魂・商才")
+    y -= 14
+    c.drawString(300, y, "代表社員　税理士　勝野　弘志　殿")
+    y -= 20
+    c.drawString(300, y, f"電子承認日：{pledge.get('submitted_at', '')}")
+
+    c.save()
+    buf.seek(0)
+    return buf
+
+
+@app.get("/api/pledges/zip/{year_month}")
+async def download_pledges_zip(year_month: str, user_id: str = Query(None)):
+    if not user_id:
+        raise HTTPException(status_code=401)
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+    if not current_user or current_user.get("role") not in ["admin", "soumu"]:
+        raise HTTPException(status_code=403)
+    data = await dropbox_get(PLEDGES_PATH) or {"pledges": []}
+    targets = [p for p in data.get("pledges", []) if p.get("year_month") == year_month]
+    if not targets:
+        raise HTTPException(status_code=404, detail="提出済み誓約書がありません")
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for pledge in targets:
+            pdf_buf = generate_pledge_pdf(pledge)
+            safe_name = pledge.get('user_name', pledge.get('user_id', 'unknown'))
+            zf.writestr(f"{safe_name}_{year_month}_誓約書.pdf", pdf_buf.getvalue())
+    zip_buf.seek(0)
+    from urllib.parse import quote
+    zip_filename = quote(f"誓約書一括_{year_month}.zip")
+    return StreamingResponse(
+        zip_buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{zip_filename}"}
+    )
 
 
 @app.get("/api/pledges/my/{user_id}/{year_month}")
