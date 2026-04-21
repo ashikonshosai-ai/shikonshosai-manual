@@ -1513,6 +1513,10 @@ async function importUsersCSV(input) {
 }
 
 // ── 日報 ──────────────────────────────────────────
+function formatHoursDecimal(h) {
+  return h > 0 ? (Math.round(h * 100) / 100).toFixed(2) : '-';
+}
+
 function formatHours(h) {
   const hours = Math.floor(h);
   const minutes = Math.round((h - hours) * 60);
@@ -1822,17 +1826,17 @@ async function renderGroupTab() {
     const companyTotal = users.reduce((s, { uid }) => s + (matrix[company][uid] || 0), 0);
     const cells = users.map(({ uid }) => {
       const h = matrix[company][uid] || 0;
-      return `<td style="${tdR}">${h > 0 ? formatHours(Math.round(h * 100) / 100) : '-'}</td>`;
+      return `<td style="${tdR}">${formatHoursDecimal(h)}</td>`;
     }).join('');
     return `<tr>
       <td style="${tdL}">${esc(company)}</td>
       ${cells}
-      <td style="${tdR} font-weight:600;">${formatHours(Math.round(companyTotal * 100) / 100)}</td>
+      <td style="${tdR} font-weight:600;">${formatHoursDecimal(companyTotal)}</td>
     </tr>`;
   }).join('');
 
   const footerCells = users.map(({ uid }) =>
-    `<td style="${tdR} font-weight:700; background:#f8fafc; border-top:2px solid #e2e8f0;">${formatHours(Math.round(userTotals[uid] * 100) / 100)}</td>`
+    `<td style="${tdR} font-weight:700; background:#f8fafc; border-top:2px solid #e2e8f0;">${formatHoursDecimal(userTotals[uid])}</td>`
   ).join('');
 
   el.innerHTML = `
@@ -1850,7 +1854,7 @@ async function renderGroupTab() {
           <tr>
             <td style="padding:6px 10px; font-size:12px; font-weight:700; background:#f8fafc; border-top:2px solid #e2e8f0;">合計</td>
             ${footerCells}
-            <td style="${tdR} font-weight:700; background:#f8fafc; border-top:2px solid #e2e8f0;">${formatHours(Math.round(grandTotal * 100) / 100)}</td>
+            <td style="${tdR} font-weight:700; background:#f8fafc; border-top:2px solid #e2e8f0;">${formatHoursDecimal(grandTotal)}</td>
           </tr>
         </tfoot>
       </table>
