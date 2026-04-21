@@ -396,9 +396,31 @@
             <span id="report-month-label" style="font-size:13px; font-weight:600; min-width:80px; text-align:center;"></span>
             <button class="btn btn-gray" style="padding:4px 10px;" onclick="nextReportMonth()">▶</button>
           </div>
-          <button class="btn btn-blue" onclick="document.getElementById('ri-date').focus()">＋ 追加</button>
+          <button class="btn btn-blue" onclick="document.getElementById('input-date').focus()">＋ 追加</button>
         </div>
         <div id="report-summary" style="display:flex; gap:16px; padding:10px 14px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:12px; font-size:13px; flex-wrap:wrap;"></div>
+        <!-- タブ -->
+        <div style="display:flex; gap:0; margin-bottom:12px; border-bottom:2px solid #e2e8f0;">
+          <button id="tab-entries" onclick="switchReportTab('entries')" style="padding:7px 18px; font-size:13px; font-weight:600; border:none; background:none; cursor:pointer; color:#1d4ed8; border-bottom:2px solid #1d4ed8; margin-bottom:-2px;">明細</button>
+          <button id="tab-summary" onclick="switchReportTab('summary')" style="padding:7px 18px; font-size:13px; font-weight:600; border:none; background:none; cursor:pointer; color:#94a3b8; border-bottom:2px solid transparent; margin-bottom:-2px;">会社別集計</button>
+        </div>
+        <!-- 明細タブ内容 -->
+        <div id="report-tab-entries">
+        <div style="border:1px solid #93c5fd; border-radius:8px; padding:10px; margin-bottom:12px; background:#f0f7ff;">
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; align-items:center;">
+            <input type="date" id="input-date" style="padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" />
+            <input type="time" id="input-start" style="width:90px; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" oninput="calcHours()" />
+            <input type="time" id="input-end" style="width:90px; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" oninput="calcHours()" />
+            <span id="input-hours" style="width:60px; line-height:32px; font-size:13px; color:#1e3a5f; font-weight:500;">-</span>
+            <input type="text" id="input-code" placeholder="会社CD" style="width:70px; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" />
+            <input type="text" id="input-company" placeholder="会社名" style="width:130px; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" />
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input type="text" id="input-content" placeholder="業務内容を入力..." style="flex:1; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" onkeydown="if(event.key==='Enter')saveEntry()" />
+            <button id="save-btn" onclick="saveEntry()" style="padding:6px 16px; background:#1e3a5f; color:white; border:none; border-radius:6px; font-size:13px; white-space:nowrap; cursor:pointer;">保存</button>
+            <button id="cancel-btn" onclick="cancelEdit()" style="display:none; padding:6px 12px; background:#f1f5f9; color:#475569; border:1px solid #e2e8f0; border-radius:6px; font-size:13px; white-space:nowrap; cursor:pointer;">キャンセル</button>
+          </div>
+        </div>
         <div style="overflow-x:auto;">
           <table id="report-table" style="width:100%; border-collapse:collapse; font-size:13px;">
             <thead>
@@ -407,18 +429,24 @@
                 <th style="text-align:right;">時間</th>
                 <th>会社CD</th><th>会社名</th><th>業務内容</th><th></th>
               </tr>
-              <tr id="report-input-row" style="background:#eff6ff; border-bottom:1px solid #bfdbfe;">
-                <td><input type="date" id="ri-date" style="width:130px; padding:5px; border:1px solid #cbd5e1; border-radius:5px; font-size:12px;"></td>
-                <td><input type="time" id="ri-start" style="width:85px; padding:5px; border:1px solid #cbd5e1; border-radius:5px; font-size:12px;" oninput="calcReportHours()"></td>
-                <td><input type="time" id="ri-end" style="width:85px; padding:5px; border:1px solid #cbd5e1; border-radius:5px; font-size:12px;" oninput="calcReportHours()"></td>
-                <td style="text-align:right;"><span id="ri-hours" style="font-size:12px; color:#475569; min-width:36px; display:inline-block; text-align:right;">-</span></td>
-                <td><input type="text" id="ri-code" placeholder="1234" style="width:60px; padding:5px; border:1px solid #cbd5e1; border-radius:5px; font-size:12px;"></td>
-                <td><input type="text" id="ri-name" placeholder="会社名" style="width:120px; padding:5px; border:1px solid #cbd5e1; border-radius:5px; font-size:12px;"></td>
-                <td><input type="text" id="ri-content" placeholder="業務内容" style="width:100%; min-width:140px; padding:5px; border:1px solid #cbd5e1; border-radius:5px; font-size:12px;" onkeydown="if(event.key==='Enter')saveReportEntry()"></td>
-                <td><button class="btn btn-blue" style="padding:5px 10px; font-size:12px; white-space:nowrap;" onclick="saveReportEntry()">保存</button></td>
-              </tr>
             </thead>
             <tbody id="report-entries"></tbody>
+          </table>
+        </div>
+        </div><!-- /#report-tab-entries -->
+        <!-- 集計タブ内容 -->
+        <div id="report-tab-summary" style="display:none;">
+          <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+            <button onclick="copySummary()" style="padding:6px 14px; border:1px solid #e2e8f0; border-radius:6px; background:#f8fafc; font-size:13px; cursor:pointer;">📋 コピー</button>
+          </div>
+          <table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead>
+              <tr style="background:#f8fafc; border-bottom:2px solid #e2e8f0;">
+                <th style="padding:8px 12px; text-align:left; font-weight:600; color:#475569;">会社名</th>
+                <th style="padding:8px 12px; text-align:right; font-weight:600; color:#475569;">時間</th>
+              </tr>
+            </thead>
+            <tbody id="summary-entries"></tbody>
           </table>
         </div>
       </div>
@@ -471,6 +499,7 @@ let _viewMode = 'home'; // 'home' | 'category' | 'search' | 'qa' | 'user-mgmt' |
 let _reportData = { entries: [] };
 let _currentReportMonth = '';
 let _reportViewUserId = null;
+let _editingEntryId = null;
 let _openQId = null;
 let _editCatId = null, _editManualId = null;
 let _editImages = []; // { path, caption, url }
@@ -1341,15 +1370,23 @@ async function importUsersCSV(input) {
 }
 
 // ── 日報 ──────────────────────────────────────────
-function calcReportHours() {
-  const start = document.getElementById('ri-start').value;
-  const end   = document.getElementById('ri-end').value;
-  const el    = document.getElementById('ri-hours');
+function formatHours(h) {
+  const hours = Math.floor(h);
+  const minutes = Math.round((h - hours) * 60);
+  if (hours === 0) return `${minutes}分`;
+  if (minutes === 0) return `${hours}時間`;
+  return `${hours}時間${minutes}分`;
+}
+
+function calcHours() {
+  const start = document.getElementById('input-start').value;
+  const end   = document.getElementById('input-end').value;
+  const el    = document.getElementById('input-hours');
   if (!start || !end) { el.textContent = '-'; return 0; }
   const [sh, sm] = start.split(':').map(Number);
   const [eh, em] = end.split(':').map(Number);
   const h = Math.round(((eh * 60 + em) - (sh * 60 + sm)) / 60 * 100) / 100;
-  el.textContent = h > 0 ? h.toFixed(2) : '-';
+  el.textContent = h > 0 ? formatHours(h) : '-';
   return h > 0 ? h : 0;
 }
 
@@ -1377,13 +1414,13 @@ async function loadReport() {
   _reportData = await r.json();
   if (!_reportData.entries) _reportData.entries = [];
   renderReport();
+  if (_reportTab === 'summary') renderSummaryTab();
 }
 
 function renderReport() {
   const [y, m] = _currentReportMonth.split('-');
   document.getElementById('report-month-label').textContent = `${y}年${parseInt(m)}月`;
 
-  // タイトル
   const sel = document.getElementById('report-user-select');
   const isAdmin = _currentUser?.role === 'admin' || _currentUser?.role === 'leader';
   if (isAdmin) {
@@ -1405,20 +1442,17 @@ function renderReport() {
     document.getElementById('report-title').textContent = `日報 - ${_currentUser?.name || ''}`;
   }
 
-  // 日付初期値
-  const dateEl = document.getElementById('ri-date');
+  const dateEl = document.getElementById('input-date');
   if (dateEl && !dateEl.value) dateEl.value = today();
 
-  // サマリー
   const { totalHours, days, companies } = calcSummary(_reportData.entries);
   document.getElementById('report-summary').innerHTML =
-    `<span>合計時間：<strong>${totalHours}h</strong></span>` +
+    `<span>合計時間：<strong>${formatHours(totalHours)}</strong></span>` +
     `<span style="color:#cbd5e1;">|</span>` +
     `<span>稼働日数：<strong>${days}日</strong></span>` +
     `<span style="color:#cbd5e1;">|</span>` +
     `<span>会社数：<strong>${companies}社</strong></span>`;
 
-  // エントリ一覧（日付降順）
   const sorted = [..._reportData.entries].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
   const tbody = document.getElementById('report-entries');
   tbody.innerHTML = '';
@@ -1428,43 +1462,74 @@ function renderReport() {
   }
   sorted.forEach(e => {
     const tr = document.createElement('tr');
+    tr.style.background = e.id === _editingEntryId ? '#fff8e1' : '';
+    tr.style.cursor = 'pointer';
     tr.innerHTML = `
       <td style="white-space:nowrap;">${esc(e.date)}</td>
       <td style="white-space:nowrap;">${esc(e.start_time || '')}</td>
       <td style="white-space:nowrap;">${esc(e.end_time || '')}</td>
-      <td style="text-align:right; white-space:nowrap;">${e.hours != null ? e.hours : ''}</td>
+      <td style="text-align:right; white-space:nowrap;">${e.hours != null ? formatHours(e.hours) : ''}</td>
       <td style="white-space:nowrap;">${esc(e.company_code || '')}</td>
       <td style="white-space:nowrap;">${esc(e.company_name || '')}</td>
       <td>${esc(e.content || '')}</td>
       <td style="white-space:nowrap;"><button class="btn-sm" onclick="deleteReportEntry('${e.id}')">削除</button></td>`;
+    tr.addEventListener('click', (ev) => { if (!ev.target.closest('button')) editEntry(e.id); });
     tbody.appendChild(tr);
   });
 }
 
-async function saveReportEntry() {
-  const date    = document.getElementById('ri-date').value;
-  const start   = document.getElementById('ri-start').value;
-  const end     = document.getElementById('ri-end').value;
-  const code    = document.getElementById('ri-code').value.trim();
-  const name    = document.getElementById('ri-name').value.trim();
-  const content = document.getElementById('ri-content').value.trim();
+async function saveEntry() {
+  const date    = document.getElementById('input-date').value;
+  const start   = document.getElementById('input-start').value;
+  const end     = document.getElementById('input-end').value;
+  const code    = document.getElementById('input-code').value.trim();
+  const name    = document.getElementById('input-company').value.trim();
+  const content = document.getElementById('input-content').value.trim();
   if (!date) { alert('日付を入力してください'); return; }
-  const hours = calcReportHours();
-  _reportData.entries.push({
-    id: 'e_' + Date.now(),
-    date, start_time: start, end_time: end, hours,
-    company_code: code, company_name: name, content
-  });
+  const hours = calcHours();
+  if (_editingEntryId) {
+    const idx = _reportData.entries.findIndex(e => e.id === _editingEntryId);
+    if (idx !== -1) {
+      _reportData.entries[idx] = { ..._reportData.entries[idx], date, start_time: start, end_time: end, hours, company_code: code, company_name: name, content };
+    }
+  } else {
+    _reportData.entries.push({ id: 'e_' + Date.now(), date, start_time: start, end_time: end, hours, company_code: code, company_name: name, content });
+  }
   await postReport();
-  ['ri-start', 'ri-end', 'ri-code', 'ri-name', 'ri-content'].forEach(id => {
+  cancelEdit();
+}
+
+function cancelEdit() {
+  _editingEntryId = null;
+  ['input-start', 'input-end', 'input-code', 'input-company', 'input-content'].forEach(id => {
     document.getElementById(id).value = '';
   });
-  document.getElementById('ri-hours').textContent = '-';
+  document.getElementById('input-hours').textContent = '-';
+  document.getElementById('save-btn').textContent = '保存';
+  document.getElementById('cancel-btn').style.display = 'none';
+  renderReport();
+}
+
+function editEntry(entryId) {
+  const entry = _reportData.entries.find(e => e.id === entryId);
+  if (!entry) return;
+  _editingEntryId = entryId;
+  document.getElementById('input-date').value    = entry.date;
+  document.getElementById('input-start').value   = entry.start_time || '';
+  document.getElementById('input-end').value     = entry.end_time || '';
+  document.getElementById('input-code').value    = entry.company_code || '';
+  document.getElementById('input-company').value = entry.company_name || '';
+  document.getElementById('input-content').value = entry.content || '';
+  document.getElementById('save-btn').textContent = '更新';
+  document.getElementById('cancel-btn').style.display = 'inline-block';
+  calcHours();
+  document.getElementById('input-date').focus();
   renderReport();
 }
 
 async function deleteReportEntry(id) {
   if (!confirm('このエントリを削除しますか？')) return;
+  if (_editingEntryId === id) _editingEntryId = null;
   _reportData.entries = _reportData.entries.filter(e => e.id !== id);
   await postReport();
   renderReport();
@@ -1483,6 +1548,7 @@ function prevReportMonth() {
   const [y, m] = _currentReportMonth.split('-').map(Number);
   const d = new Date(y, m - 2, 1);
   _currentReportMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  _editingEntryId = null;
   document.getElementById('report-user-select').innerHTML = '';
   loadReport();
 }
@@ -1491,13 +1557,81 @@ function nextReportMonth() {
   const [y, m] = _currentReportMonth.split('-').map(Number);
   const d = new Date(y, m, 1);
   _currentReportMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  _editingEntryId = null;
   document.getElementById('report-user-select').innerHTML = '';
   loadReport();
 }
 
 function onReportUserChange(userId) {
   _reportViewUserId = userId;
+  _editingEntryId = null;
   loadReport();
+}
+
+let _reportTab = 'entries';
+
+function switchReportTab(tab) {
+  _reportTab = tab;
+  const isEntries = tab === 'entries';
+  document.getElementById('report-tab-entries').style.display = isEntries ? 'block' : 'none';
+  document.getElementById('report-tab-summary').style.display = isEntries ? 'none' : 'block';
+  const btnE = document.getElementById('tab-entries');
+  const btnS = document.getElementById('tab-summary');
+  btnE.style.color = isEntries ? '#1d4ed8' : '#94a3b8';
+  btnE.style.borderBottom = isEntries ? '2px solid #1d4ed8' : '2px solid transparent';
+  btnS.style.color = isEntries ? '#94a3b8' : '#1d4ed8';
+  btnS.style.borderBottom = isEntries ? '2px solid transparent' : '2px solid #1d4ed8';
+  if (!isEntries) renderSummaryTab();
+}
+
+function renderSummaryTab() {
+  const summary = {};
+  _reportData.entries.forEach(e => {
+    const key = e.company_name || '（会社名なし）';
+    summary[key] = (summary[key] || 0) + (e.hours || 0);
+  });
+  const sorted = Object.entries(summary).sort((a, b) => b[1] - a[1]);
+  const totalHours = sorted.reduce((s, [, h]) => s + h, 0);
+  const tbody = document.getElementById('summary-entries');
+  tbody.innerHTML = '';
+  if (sorted.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="2" style="padding:20px; text-align:center; color:#94a3b8;">データがありません</td></tr>`;
+    return;
+  }
+  sorted.forEach(([name, hours]) => {
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid #f1f5f9';
+    tr.innerHTML = `<td style="padding:8px 12px;">${esc(name)}</td><td style="padding:8px 12px; text-align:right; font-weight:500;">${formatHours(Math.round(hours * 100) / 100)}</td>`;
+    tbody.appendChild(tr);
+  });
+  const tfootTr = document.createElement('tr');
+  tfootTr.style.cssText = 'border-top:2px solid #e2e8f0; background:#f8fafc; font-weight:700;';
+  tfootTr.innerHTML = `<td style="padding:8px 12px;">合計</td><td style="padding:8px 12px; text-align:right;">${formatHours(Math.round(totalHours * 100) / 100)}</td>`;
+  tbody.appendChild(tfootTr);
+}
+
+async function copySummary() {
+  const summary = {};
+  _reportData.entries.forEach(e => {
+    const key = e.company_name || '（会社名なし）';
+    summary[key] = (summary[key] || 0) + (e.hours || 0);
+  });
+  const sorted = Object.entries(summary).sort((a, b) => b[1] - a[1]);
+  const totalHours = sorted.reduce((s, [, h]) => s + h, 0);
+  const [y, m] = _currentReportMonth.split('-');
+  const lines = [
+    `${y}年${parseInt(m)}月　会社別作業時間`,
+    '',
+    ...sorted.map(([name, hours]) => `${name}\t${formatHours(Math.round(hours * 100) / 100)}`),
+    '',
+    `合計\t${formatHours(Math.round(totalHours * 100) / 100)}`
+  ];
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'));
+    alert('クリップボードにコピーしました');
+  } catch {
+    prompt('以下をコピーしてください：', lines.join('\n'));
+  }
 }
 
 // オーバーレイ外クリックで閉じる
