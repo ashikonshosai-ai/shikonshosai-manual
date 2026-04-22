@@ -326,8 +326,10 @@ async def get_users():
 async def save_users(request: Request):
     data = await request.json()
     # GET /api/users はindividual_passwordを除外して返すため、既存データから引き継ぐ
+    # また共通パスワード（data["password"]）はクライアントから書き換えさせない
     existing = await dropbox_get(USERS_PATH)
     if existing:
+        data["password"] = existing.get("password", data.get("password", ""))
         existing_pw = {u["id"]: u.get("individual_password", "") for u in existing.get("users", [])}
         for user in data.get("users", []):
             uid = user.get("id", "")
