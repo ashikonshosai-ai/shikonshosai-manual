@@ -351,12 +351,12 @@
       <div class="nav-item" id="nav-invoice" onclick="showInvoice()">📄 請求書</div>
       <div class="nav-item" id="nav-pledge" onclick="showPledge()">📝 誓約書</div>
       <div class="nav-item" id="nav-invoice-admin" style="display:none" onclick="showInvoiceAdmin()">📋 請求書管理</div>
+      <div class="nav-item" id="nav-ar" style="display:none" onclick="showAr()">💰 売掛管理</div>
       <div class="nav-item" id="nav-qa" onclick="showQA()">
         ❓ Q&A
         <span id="qa-badge" style="display:none; margin-left:auto; font-size:10px; background:#E24B4A; color:white; border-radius:10px; padding:1px 6px;"></span>
       </div>
       <div class="nav-item" id="nav-profile" onclick="showProfile()">👤 マイプロフィール</div>
-      <div class="nav-item" id="nav-ar" style="display:none" onclick="showAr()">💰 売掛管理</div>
       <div class="nav-item" id="nav-user-mgmt" style="display:none" onclick="showUserMgmt()">⚙ ユーザー管理</div>
     </div>
     <div class="nav-label" style="padding: 8px 16px 4px;">マニュアル</div>
@@ -2655,7 +2655,7 @@ function renderArTable(rows) {
     const isTotal = (i === 1);
     const bg = isTotal ? "#fffde7" : (hasDiff ? "#fff0f0" : (i % 2 === 0 ? "#fafafa" : "#fff"));
     const fontWeight = isTotal ? "font-weight:bold;" : "";
-    const rowSticky = isTotal ? "position:sticky;top:37px;z-index:2;" : "";
+    const rowSticky = isTotal ? "position:sticky;top:36px;z-index:2;" : "";
 
     html += `<tr style="background:${bg};${fontWeight}${rowSticky}">`;
     row.forEach((cell, j) => {
@@ -2665,7 +2665,7 @@ function renderArTable(rows) {
         const stickyStyle = isFirst
           ? `position:sticky;left:0;z-index:${isTotal ? 3 : 1};background:${bg};`
           : "";
-        html += `<td style="border:1px solid #ddd;padding:5px 10px;text-align:${align};${fontWeight}${stickyStyle}${isTotal ? "position:sticky;top:37px;" : ""}">${cell}</td>`;
+        html += `<td style="border:1px solid #ddd;padding:5px 10px;text-align:${align};${fontWeight}${stickyStyle}${isTotal ? "position:sticky;top:36px;" : ""}">${cell}</td>`;
       }
     });
     html += `</tr>`;
