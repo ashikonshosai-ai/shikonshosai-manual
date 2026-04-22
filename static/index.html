@@ -3092,24 +3092,27 @@ function nextPledgeMonth() {
 async function loadPledgeAdmin() {
   const [y, m] = _pledgeAdminMonth.split('-');
   document.getElementById('pledge-admin-month-label').textContent = `${y}年${parseInt(m)}月`;
-  const role = _currentUser?.role;
   const zipBtn = document.getElementById('btn-pledges-zip');
-  if (zipBtn) zipBtn.style.display = ['admin', 'soumu'].includes(role) ? 'inline-block' : 'none';
+  if (zipBtn) zipBtn.style.display = ['admin', 'soumu'].includes(_currentUser?.role) ? 'inline-block' : 'none';
   const listEl = document.getElementById('pledge-admin-list');
   listEl.innerHTML = '<div style="padding:12px; text-align:center; color:#94a3b8; font-size:13px;">読み込み中...</div>';
   try {
-    const [pledgesRes, usersRes] = await Promise.all([
+    const [pledgeRes, usersRes] = await Promise.all([
       fetch('/api/pledges', { headers: { 'user-id': _currentUser?.id || '' } }),
-      fetch('/api/users', { headers: { 'user-id': _currentUser?.id || '' } })
+      fetch('/api/users')
     ]);
-    if (!pledgesRes.ok) throw new Error();
-    const pd = await pledgesRes.json();
-    _pledgeAdminData = (pd.pledges || []).filter(p => p.year_month === _pledgeAdminMonth);
-    let allUsers = [];
-    if (usersRes.ok) {
-      const ud = await usersRes.json();
-      allUsers = (ud.users || []).filter(u => u.role === 'staff');
+    if (!pledgeRes.ok) throw new Error();
+    const pledgeData = await pledgeRes.json();
+    const usersData = await usersRes.json();
+    _pledgeAdminData = (pledgeData.pledges || []).filter(p => p.year_month === _pledgeAdminMonth);
+
+    // roleによって比較対象スタッフを絞る
+    let allUsers = (usersData.users || []).filter(u => u.role === 'staff');
+    if (_currentUser?.role === 'leader') {
+      const myGroup = _currentUser?.group || '';
+      allUsers = allUsers.filter(u => u.group === myGroup);
     }
+
     renderPledgeAdmin(allUsers);
   } catch {
     listEl.innerHTML = '<div style="padding:12px; text-align:center; color:#f87171; font-size:13px;">取得に失敗しました</div>';
