@@ -1610,6 +1610,8 @@ async function doChangePassword() {
     body: JSON.stringify({ email: _currentUser.email, new_password: newPw })
   });
   if (r.ok) {
+    _sessionPassword = newPw;
+    sessionStorage.setItem('manual_session_pw', newPw);
     _currentUser.password_changed = true;
     localStorage.setItem('manual_user', JSON.stringify(_currentUser));
     showApp(_currentUser);
