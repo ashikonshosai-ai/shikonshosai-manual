@@ -1,9 +1,11 @@
-import os, json, httpx, asyncio, time, io, zipfile
+import os, json, httpx, asyncio, time, io, zipfile, calendar
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from datetime import date, datetime
 import dropbox
 from dropbox.exceptions import ApiError as DropboxApiError
+import gspread
+from google.oauth2.service_account import Credentials
 from fastapi import FastAPI, Request, UploadFile, File, Form, Query, Header, HTTPException, Response
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,6 +17,11 @@ DROPBOX_APP_SECRET   = os.environ.get("DROPBOX_APP_SECRET")
 DROPBOX_REFRESH_TOKEN = os.environ.get("DROPBOX_REFRESH_TOKEN")
 SHIKONSHOSAI_APP_URL = os.environ.get("SHIKONSHOSAI_APP_URL", "https://shikonshosai-app.onrender.com")
 INTERNAL_SECRET      = os.environ.get("INTERNAL_SECRET", "shikonshosai_internal_2024")
+SPREADSHEET_ID   = "1Pt4Mvzp11FMWLxwF-iFYxF2iVHVn54qNpaJRhkicDe4"
+FREEE_COMPANY_ID = int(os.environ.get("FREEE_COMPANY_ID", "3254695"))
+_FREEE_CLIENT_ID     = os.environ.get("FREEE_CLIENT_ID", "")
+_FREEE_CLIENT_SECRET = os.environ.get("FREEE_CLIENT_SECRET", "")
+_FREEE_REFRESH_TOKEN = os.environ.get("FREEE_REFRESH_TOKEN", "")
 MANUALS_PATH  = "/400000_CC/shikonshosai/manuals.json"
 NOTICES_PATH  = "/400000_CC/shikonshosai/notices.json"
 QA_PATH       = "/400000_CC/shikonshosai/qa.json"
@@ -66,6 +73,43 @@ async def dropbox_save(path: str, data: dict):
     dbx = _get_dropbox_client()
     content = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
     dbx.files_upload(content, path, mode=dropbox.files.WriteMode.overwrite, mute=True)
+
+def _get_gspread_client():
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+    creds_dict = json.loads(creds_json)
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    return gspread.authorize(creds)
+
+def _get_spreadsheet():
+    gc = _get_gspread_client()
+    return gc.open_by_key(SPREADSHEET_ID)
+
+_freee_access_token: str = ""
+_freee_token_expires_at: float = 0.0
+
+async def _get_freee_token() -> str:
+    global _freee_access_token, _freee_token_expires_at
+    if _freee_access_token and time.time() < _freee_token_expires_at - 60:
+        return _freee_access_token
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            "https://accounts.secure.freee.co.jp/public_api/token",
+            data={
+                "grant_type": "refresh_token",
+                "client_id": _FREEE_CLIENT_ID,
+                "client_secret": _FREEE_CLIENT_SECRET,
+                "refresh_token": _FREEE_REFRESH_TOKEN,
+            }
+        )
+        r.raise_for_status()
+        td = r.json()
+        _freee_access_token = td["access_token"]
+        _freee_token_expires_at = time.time() + td.get("expires_in", 3600)
+        return _freee_access_token
 
 @app.get("/api/manuals")
 async def get_manuals():
@@ -971,6 +1015,408 @@ async def register_to_freee(year_month: str, request: Request):
         "errors": errors,
         "message": f"{registered}件をfreeeに登録しました"
     }
+
+@app.get("/api/ar/sheets")
+async def get_ar_sheets(user_id: str = Header(None)):
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+    if not current_user or current_user.get("role") not in ["admin", "leader", "soumu"]:
+        raise HTTPException(status_code=403)
+    try:
+        ss = _get_spreadsheet()
+        sheets = [ws.title for ws in ss.worksheets()]
+        return {"ok": True, "sheets": sheets}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/ar/sheet/{sheet_name}")
+async def get_ar_sheet(sheet_name: str, user_id: str = Header(None)):
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+    if not current_user or current_user.get("role") not in ["admin", "leader", "soumu"]:
+        raise HTTPException(status_code=403)
+    try:
+        ss = _get_spreadsheet()
+        ws = ss.worksheet(sheet_name)
+        rows = ws.get_all_values()
+        return {"ok": True, "rows": rows}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ar/month_start")
+async def ar_month_start(request: Request, user_id: str = Header(None)):
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+    if not current_user or current_user.get("role") not in ["admin", "soumu"]:
+        raise HTTPException(status_code=403)
+    body = await request.json()
+    year_month = body.get("year_month")  # "202605"
+
+    try:
+        ss = _get_spreadsheet()
+        master_ws = ss.worksheet("マスタ")
+        master_rows = master_ws.get_all_values()
+
+        sheet_name = f"一覧表{year_month}"
+        year = int(year_month[:4])
+        month = int(year_month[4:])
+
+        # 前月シート名
+        if month == 1:
+            prev_month = f"一覧表{year-1}12"
+        else:
+            prev_month = f"一覧表{year_month[:4]}{str(month-1).zfill(2)}"
+
+        # 既存シートチェック
+        existing_titles = [ws.title for ws in ss.worksheets()]
+        if sheet_name in existing_titles:
+            return {"ok": False, "message": f"{sheet_name}はすでに存在します"}
+
+        # マスタの右隣に新シートを作成して挿入
+        all_sheets = ss.worksheets()
+        master_index = next(i for i, ws in enumerate(all_sheets) if ws.title == "マスタ")
+        new_ws = ss.add_worksheet(title=sheet_name, rows=210, cols=22)
+        others = [ws for ws in ss.worksheets() if ws.title != sheet_name]
+        new_order = others[:master_index + 1] + [new_ws] + others[master_index + 1:]
+        ss.reorder_worksheets(new_order)
+
+        # 1行目ヘッダー
+        header = master_rows[0] if master_rows else []
+        updates = []
+        if header:
+            updates.append({"range": "A1", "values": [header]})
+
+        # 2行目：合計行
+        sum_row = ["合計", ""]
+        for col_letter in ["D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V"]:
+            sum_row.append(f"=SUM({col_letter}3:{col_letter}200)")
+        updates.append({"range": "A2", "values": [sum_row]})
+
+        # データ行（3行目〜）
+        data_rows = master_rows[2:] if len(master_rows) > 2 else []
+        for i, row in enumerate(data_rows):
+            row_num = i + 3
+            if not any(row):
+                continue
+            new_row = [
+                row[0] if len(row) > 0 else "",
+                row[1] if len(row) > 1 else "",
+                row[2] if len(row) > 2 else "",
+                f"='{prev_month}'!T{row_num}",
+                "",
+                f"=D{row_num}-IF(E{row_num}=\"\",0,E{row_num})",
+                row[6] if len(row) > 6 else "",
+                row[7] if len(row) > 7 else "",
+                row[8] if len(row) > 8 else "",
+                row[9] if len(row) > 9 else "",
+                row[10] if len(row) > 10 else "",
+                row[11] if len(row) > 11 else "",
+                row[12] if len(row) > 12 else "",
+                row[13] if len(row) > 13 else "",
+                row[14] if len(row) > 14 else "",
+                row[15] if len(row) > 15 else "",
+                row[16] if len(row) > 16 else "",
+                "",
+                f"=SUM(G{row_num}:Q{row_num})",
+                f"=F{row_num}+S{row_num}",
+                "",
+                f"=IF(U{row_num}=\"\",\"\",T{row_num}-U{row_num})",
+            ]
+            updates.append({"range": f"A{row_num}", "values": [new_row]})
+
+        new_ws.batch_update(updates)
+
+        # freeeに月次顧問料を売上登録
+        issue_date = f"{year}-{str(month).zfill(2)}-01"
+        token = await _get_freee_token()
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+        registered = []
+        errors = []
+
+        async with httpx.AsyncClient() as client:
+            for i, row in enumerate(data_rows):
+                if not any(row):
+                    continue
+                amount = 0
+                for col_idx in range(6, 17):
+                    try:
+                        val = row[col_idx] if len(row) > col_idx else ""
+                        if val:
+                            amount += int(str(val).replace(",", ""))
+                    except Exception:
+                        pass
+                if amount == 0:
+                    continue
+                freee_partner_name = row[2] if len(row) > 2 else ""
+                if not freee_partner_name:
+                    continue
+
+                # partner_id取得
+                pr = await client.get(
+                    "https://api.freee.co.jp/api/1/partners",
+                    headers=headers,
+                    params={"company_id": FREEE_COMPANY_ID, "keyword": freee_partner_name}
+                )
+                partners = pr.json().get("partners", [])
+                partner_id = next((p["id"] for p in partners if p["name"] == freee_partner_name), None)
+
+                # 取引先がなければ新規登録
+                if not partner_id:
+                    cr = await client.post(
+                        "https://api.freee.co.jp/api/1/partners",
+                        headers=headers,
+                        json={"company_id": FREEE_COMPANY_ID, "name": freee_partner_name}
+                    )
+                    if cr.status_code == 201:
+                        partner_id = cr.json()["partner"]["id"]
+                    else:
+                        errors.append(f"{freee_partner_name}: 取引先登録失敗")
+                        continue
+
+                # 売上取引登録
+                dr = await client.post(
+                    "https://api.freee.co.jp/api/1/deals",
+                    headers=headers,
+                    json={
+                        "company_id": FREEE_COMPANY_ID,
+                        "issue_date": issue_date,
+                        "type": "income",
+                        "partner_id": partner_id,
+                        "details": [{
+                            "account_item_name": "売上高",
+                            "tax_code": 1,
+                            "item_name": "顧問報酬",
+                            "amount": amount,
+                            "description": f"顧問料 {year_month[:4]}年{str(month).zfill(2)}月"
+                        }]
+                    }
+                )
+                if dr.status_code == 201:
+                    registered.append(freee_partner_name)
+                else:
+                    errors.append(f"{freee_partner_name}: {dr.text}")
+
+        return {
+            "ok": True,
+            "sheet": sheet_name,
+            "registered": registered,
+            "errors": errors,
+            "message": f"シート作成完了。freee登録: {len(registered)}件"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ar/mid_month")
+async def ar_mid_month(request: Request, user_id: str = Header(None)):
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+    if not current_user or current_user.get("role") not in ["admin", "soumu"]:
+        raise HTTPException(status_code=403)
+    body = await request.json()
+    year_month = body.get("year_month")  # "202605"
+
+    year = int(year_month[:4])
+    month = int(year_month[4:])
+    last_day = calendar.monthrange(year, month)[1]
+    end_date = f"{year}-{str(month).zfill(2)}-{last_day}"
+
+    try:
+        ss = _get_spreadsheet()
+        sheet_name = f"一覧表{year_month}"
+        ws = ss.worksheet(sheet_name)
+        rows = ws.get_all_values()
+
+        token = await _get_freee_token()
+        auth_headers = {"Authorization": f"Bearer {token}"}
+
+        async with httpx.AsyncClient() as client:
+            # 未決済income取引取得（入金額集計用）
+            deals_resp = await client.get(
+                "https://api.freee.co.jp/api/1/deals",
+                headers=auth_headers,
+                params={
+                    "company_id": FREEE_COMPANY_ID,
+                    "type": "income",
+                    "status": "unsettled",
+                    "issue_date_end": end_date,
+                    "limit": 100
+                }
+            )
+            income_by_partner: dict = {}
+            for deal in deals_resp.json().get("deals", []):
+                pname = deal.get("partner_name", "")
+                income_by_partner[pname] = income_by_partner.get(pname, 0) + deal.get("amount", 0)
+
+            # trial_bs：売掛金残高（取引先別）
+            bs_resp = await client.get(
+                "https://api.freee.co.jp/api/1/reports/trial_bs",
+                headers=auth_headers,
+                params={
+                    "company_id": FREEE_COMPANY_ID,
+                    "start_date": "2025-08-01",
+                    "end_date": end_date,
+                    "breakdown_display_type": "partner",
+                    "account_item_display_type": "account_item"
+                }
+            )
+            ar_balance: dict = {}
+            for item in bs_resp.json().get("trial_bs", []):
+                if "売掛金" in item.get("account_item_name", ""):
+                    for partner in item.get("partners", []):
+                        ar_balance[partner.get("partner_display_name", partner.get("name", ""))] = partner.get("closing_balance", 0)
+
+        # スプレッドシート更新
+        diffs = []
+        batch_updates = []
+
+        for i, row in enumerate(rows[2:]):
+            row_num = i + 3
+            if not any(row):
+                continue
+            freee_name = row[2] if len(row) > 2 else ""
+            partner_name = row[1] if len(row) > 1 else ""
+            if not freee_name:
+                continue
+
+            income = income_by_partner.get(freee_name, "")
+            balance = ar_balance.get(freee_name, "")
+
+            if income != "":
+                batch_updates.append({"range": f"E{row_num}", "values": [[income]]})
+            if balance != "":
+                batch_updates.append({"range": f"U{row_num}", "values": [[balance]]})
+
+            # 差額チェック
+            try:
+                t_val = row[19] if len(row) > 19 else ""
+                if t_val and balance != "":
+                    diff = int(str(t_val).replace(",", "")) - int(balance)
+                    if diff != 0:
+                        diffs.append({
+                            "name": partner_name,
+                            "freee_name": freee_name,
+                            "t_balance": t_val,
+                            "u_balance": balance,
+                            "diff": diff
+                        })
+            except Exception:
+                pass
+
+        if batch_updates:
+            ws.batch_update(batch_updates)
+
+        return {
+            "ok": True,
+            "updated": len(batch_updates),
+            "diffs": diffs,
+            "message": f"{len(batch_updates)}セルを更新しました"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ar/sync/{year_month}")
+async def ar_sync(year_month: str, user_id: str = Header(None)):
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+    if not current_user or current_user.get("role") not in ["admin", "soumu"]:
+        raise HTTPException(status_code=403)
+
+    year = int(year_month[:4])
+    month = int(year_month[4:])
+    issue_date = f"{year}-{str(month).zfill(2)}-01"
+
+    try:
+        ss = _get_spreadsheet()
+        ws = ss.worksheet(f"一覧表{year_month}")
+        rows = ws.get_all_values()
+
+        token = await _get_freee_token()
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+        updated = []
+        errors = []
+
+        async with httpx.AsyncClient() as client:
+            dr = await client.get(
+                "https://api.freee.co.jp/api/1/deals",
+                headers=headers,
+                params={
+                    "company_id": FREEE_COMPANY_ID,
+                    "type": "income",
+                    "issue_date_start": issue_date,
+                    "issue_date_end": issue_date,
+                    "limit": 100
+                }
+            )
+            existing_deals = {d["partner_name"]: d for d in dr.json().get("deals", [])}
+
+            for i, row in enumerate(rows[2:]):
+                row_num = i + 3
+                if not any(row):
+                    continue
+                freee_name = row[2] if len(row) > 2 else ""
+                if not freee_name:
+                    continue
+
+                amount = 0
+                for col_idx in range(6, 17):
+                    try:
+                        val = row[col_idx] if len(row) > col_idx else ""
+                        if val:
+                            amount += int(str(val).replace(",", ""))
+                    except Exception:
+                        pass
+
+                if amount == 0:
+                    continue
+
+                existing = existing_deals.get(freee_name)
+                if existing and existing.get("amount") != amount:
+                    pr = await client.patch(
+                        f"https://api.freee.co.jp/api/1/deals/{existing['id']}",
+                        headers=headers,
+                        json={
+                            "company_id": FREEE_COMPANY_ID,
+                            "details": [{
+                                "account_item_name": "売上高",
+                                "tax_code": 1,
+                                "item_name": "顧問報酬",
+                                "amount": amount
+                            }]
+                        }
+                    )
+                    if pr.status_code == 200:
+                        updated.append(freee_name)
+                    else:
+                        errors.append(f"{freee_name}: {pr.text}")
+
+        return {
+            "ok": True,
+            "updated": updated,
+            "errors": errors,
+            "message": f"{len(updated)}件を更新しました"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 _companies_cache = None
 _companies_cache_at = 0

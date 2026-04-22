@@ -356,6 +356,7 @@
         <span id="qa-badge" style="display:none; margin-left:auto; font-size:10px; background:#E24B4A; color:white; border-radius:10px; padding:1px 6px;"></span>
       </div>
       <div class="nav-item" id="nav-profile" onclick="showProfile()">👤 マイプロフィール</div>
+      <div class="nav-item" id="nav-ar" style="display:none" onclick="showAr()">💰 売掛管理</div>
       <div class="nav-item" id="nav-user-mgmt" style="display:none" onclick="showUserMgmt()">⚙ ユーザー管理</div>
     </div>
     <div class="nav-label" style="padding: 8px 16px 4px;">マニュアル</div>
@@ -686,6 +687,25 @@
 
 </div>
 
+      <!-- 売掛管理ビュー -->
+      <div id="ar-view" style="display:none; padding:16px;">
+        <div class="right-header" style="margin-bottom:16px;">
+          <div class="right-title">💰 売掛管理</div>
+        </div>
+        <div style="display:flex; gap:12px; align-items:center; margin-bottom:16px; flex-wrap:wrap;">
+          <select id="ar-year-month" style="padding:8px 12px; border:1px solid #e2e8f0; border-radius:6px; font-size:14px;"></select>
+          <button type="button" onclick="arLoadSheet()" style="padding:7px 16px; border:1px solid #e2e8f0; border-radius:6px; background:#f8fafc; font-size:13px; cursor:pointer;">📊 表示</button>
+          <span id="ar-admin-buttons" style="display:none; gap:8px; flex-wrap:wrap;">
+            <button type="button" onclick="arMonthStart()" style="padding:7px 16px; background:#1e3a5f; color:white; border:none; border-radius:6px; font-size:13px; cursor:pointer;">🗓️ 月初処理</button>
+            <button type="button" onclick="arMidMonth()" style="padding:7px 16px; border:1px solid #e2e8f0; border-radius:6px; background:#f8fafc; font-size:13px; cursor:pointer;">📥 15日処理（入金・残高取得）</button>
+            <button type="button" onclick="arSync()" style="padding:7px 16px; border:1px solid #e2e8f0; border-radius:6px; background:#f8fafc; font-size:13px; cursor:pointer;">🔄 差分更新</button>
+          </span>
+        </div>
+        <div id="ar-message" style="margin-bottom:12px;"></div>
+        <div id="ar-diff-report" style="margin-bottom:16px;"></div>
+        <div id="ar-table-container" style="overflow-x:auto;"></div>
+      </div>
+
       <!-- ユーザー管理ビュー -->
       <div id="user-mgmt-view" style="display:none">
         <div class="right-header">
@@ -888,6 +908,7 @@ function setView(mode) {
   document.getElementById('invoice-view').style.display       = mode === 'invoice'       ? 'block' : 'none';
   document.getElementById('invoice-admin-view').style.display = mode === 'invoice-admin' ? 'block' : 'none';
   document.getElementById('pledge-view').style.display = mode === 'pledge' ? 'block' : 'none';
+  document.getElementById('ar-view').style.display = mode === 'ar' ? 'block' : 'none';
   document.getElementById('nav-home').classList.toggle('active', mode === 'home');
   document.getElementById('nav-qa').classList.toggle('active', mode === 'qa');
   document.getElementById('nav-report').classList.toggle('active', mode === 'report');
@@ -898,11 +919,15 @@ function setView(mode) {
   const navUM = document.getElementById('nav-user-mgmt');
   if (navUM) navUM.classList.toggle('active', mode === 'user-mgmt');
   document.getElementById('nav-pledge').classList.toggle('active', mode === 'pledge');
+  const navAr = document.getElementById('nav-ar');
+  if (navAr) navAr.classList.toggle('active', mode === 'ar');
 }
 
 function render() {
   const navUM = document.getElementById('nav-user-mgmt');
   if (navUM) navUM.style.display = (['admin', 'leader', 'soumu'].includes(_currentUser?.role)) ? 'flex' : 'none';
+  const navAr = document.getElementById('nav-ar');
+  if (navAr) navAr.style.display = (['admin', 'leader', 'soumu'].includes(_currentUser?.role)) ? 'flex' : 'none';
   const navIA = document.getElementById('nav-invoice-admin');
   if (navIA) navIA.style.display = (['admin','leader','soumu'].includes(_currentUser?.role)) ? 'flex' : 'none';
   // 左ペイン
@@ -2558,6 +2583,141 @@ function calcSummary(entries) {
   const days      = new Set(entries.map(e => e.date)).size;
   const companies = new Set(entries.map(e => e.company_code).filter(Boolean)).size;
   return { totalHours: Math.round(totalHours * 100) / 100, days, companies };
+}
+
+// ── 売掛管理 ──────────────────────────────────────────
+async function showAr() {
+  setView('ar');
+  render();
+  await initArPage();
+}
+
+async function initArPage() {
+  const res = await fetch('/api/ar/sheets', { headers: { 'user-id': _currentUser?.id || '' } });
+  if (!res.ok) { showArMessage('シート一覧の取得に失敗しました', 'error'); return; }
+  const data = await res.json();
+  const sel = document.getElementById('ar-year-month');
+  sel.innerHTML = '';
+  const monthSheets = (data.sheets || [])
+    .filter(s => s.startsWith('一覧表') && s.length === 9)
+    .sort((a, b) => b.localeCompare(a));
+  monthSheets.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.replace('一覧表', '');
+    opt.textContent = s;
+    sel.appendChild(opt);
+  });
+  const adminBtns = document.getElementById('ar-admin-buttons');
+  if (adminBtns) adminBtns.style.display = ['admin', 'soumu'].includes(_currentUser?.role) ? 'flex' : 'none';
+  if (monthSheets.length > 0) await arLoadSheet();
+}
+
+async function arLoadSheet() {
+  const ym = document.getElementById('ar-year-month').value;
+  if (!ym) return;
+  const res = await fetch(`/api/ar/sheet/一覧表${ym}`, { headers: { 'user-id': _currentUser?.id || '' } });
+  if (!res.ok) { showArMessage('シートの取得に失敗しました', 'error'); return; }
+  const data = await res.json();
+  renderArTable(data.rows);
+}
+
+function renderArTable(rows) {
+  const container = document.getElementById('ar-table-container');
+  if (!rows || rows.length === 0) { container.innerHTML = '<p style="color:#94a3b8;">データがありません</p>'; return; }
+  const cols = ['管理番号','取引先名','freee取引先名','前月末残高','入金額','前月繰越',
+                 '顧問料','記帳代行','FX2','FX4','データ保管','eマイスター','PX2','MX3',
+                 'マイポータル','給与計算','その他','決算報酬','合計','当月末残高','freee残高','差額'];
+  let html = '<table style="border-collapse:collapse;font-size:12px;white-space:nowrap;">';
+  html += '<thead><tr style="background:#e8edf7;position:sticky;top:0;">';
+  cols.forEach(c => { html += `<th style="border:1px solid #ddd;padding:5px 8px;">${c}</th>`; });
+  html += '</tr></thead><tbody>';
+  rows.forEach((row, i) => {
+    const diff = row[21];
+    const hasDiff = diff && diff !== '' && diff !== '0';
+    const bg = i === 0 ? '#fffde7' : (hasDiff ? '#fff0f0' : (i % 2 === 0 ? '#fafafa' : '#fff'));
+    html += `<tr style="background:${bg};">`;
+    row.forEach((cell, j) => {
+      const align = j >= 3 ? 'right' : 'left';
+      html += `<td style="border:1px solid #ddd;padding:4px 8px;text-align:${align};">${cell}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+async function arMonthStart() {
+  const ym = document.getElementById('ar-year-month').value;
+  if (!ym) return;
+  if (!confirm(`${ym}の月初処理を実行しますか？\n・新シート作成\n・顧問料転記\n・freee売上登録`)) return;
+  showArMessage('処理中...', 'info');
+  const res = await fetch('/api/ar/month_start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'user-id': _currentUser?.id || '' },
+    body: JSON.stringify({ year_month: ym })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    showArMessage(`✅ ${data.message}${data.errors?.length > 0 ? '\n⚠️ エラー: ' + data.errors.join(', ') : ''}`, 'success');
+    await initArPage();
+  } else {
+    showArMessage(`❌ ${data.message || 'エラーが発生しました'}`, 'error');
+  }
+}
+
+async function arMidMonth() {
+  const ym = document.getElementById('ar-year-month').value;
+  if (!ym) return;
+  if (!confirm(`${ym}の15日処理を実行しますか？\n・freeeから入金額を取得→E列に転記\n・freeeから売掛残高を取得→U列に転記`)) return;
+  showArMessage('処理中...', 'info');
+  const res = await fetch('/api/ar/mid_month', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'user-id': _currentUser?.id || '' },
+    body: JSON.stringify({ year_month: ym })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    showArMessage(`✅ ${data.message}`, 'success');
+    if (data.diffs && data.diffs.length > 0) {
+      let diffHtml = '<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:12px;">';
+      diffHtml += `<strong>⚠️ 差額あり（${data.diffs.length}件）</strong>`;
+      diffHtml += '<table style="margin-top:8px;border-collapse:collapse;font-size:13px;">';
+      diffHtml += '<tr><th style="padding:4px 12px;border:1px solid #ddd;">取引先名</th><th style="padding:4px 12px;border:1px solid #ddd;">管理表(T)</th><th style="padding:4px 12px;border:1px solid #ddd;">freee(U)</th><th style="padding:4px 12px;border:1px solid #ddd;">差額</th></tr>';
+      data.diffs.forEach(d => {
+        diffHtml += `<tr><td style="padding:4px 12px;border:1px solid #ddd;">${d.name}</td><td style="padding:4px 12px;border:1px solid #ddd;text-align:right;">${d.t_balance}</td><td style="padding:4px 12px;border:1px solid #ddd;text-align:right;">${d.u_balance}</td><td style="padding:4px 12px;border:1px solid #ddd;text-align:right;color:red;">${d.diff.toLocaleString()}</td></tr>`;
+      });
+      diffHtml += '</table></div>';
+      document.getElementById('ar-diff-report').innerHTML = diffHtml;
+    } else {
+      document.getElementById('ar-diff-report').innerHTML = '<div style="color:green;">✅ 差額なし</div>';
+    }
+    await arLoadSheet();
+  } else {
+    showArMessage('❌ エラーが発生しました', 'error');
+  }
+}
+
+async function arSync() {
+  const ym = document.getElementById('ar-year-month').value;
+  if (!ym) return;
+  if (!confirm(`${ym}の差分更新を実行しますか？\nfreeeの登録済み売上とG〜Q列の合計を比較して差分があるものだけ更新します。`)) return;
+  showArMessage('処理中...', 'info');
+  const res = await fetch(`/api/ar/sync/${ym}`, {
+    method: 'POST',
+    headers: { 'user-id': _currentUser?.id || '' }
+  });
+  const data = await res.json();
+  if (data.ok) {
+    showArMessage(`✅ ${data.message}${data.errors?.length > 0 ? '\n⚠️ ' + data.errors.join(', ') : ''}`, 'success');
+  } else {
+    showArMessage('❌ エラーが発生しました', 'error');
+  }
+}
+
+function showArMessage(msg, type) {
+  const colors = { info: '#e3f2fd', success: '#e8f5e9', error: '#ffebee' };
+  document.getElementById('ar-message').innerHTML =
+    `<div style="background:${colors[type] || '#f5f5f5'};padding:10px 14px;border-radius:6px;white-space:pre-wrap;font-size:13px;">${msg}</div>`;
 }
 
 function refreshCompanies() {

@@ -5,3 +5,5 @@ python-multipart
 dropbox
 openpyxl
 reportlab
+gspread
+google-auth
