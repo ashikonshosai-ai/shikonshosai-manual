@@ -2647,16 +2647,23 @@ function renderArTable(rows) {
   html += `</tr></thead><tbody>`;
 
   rows.forEach((row, i) => {
+    if (i === 0) return; // 1行目（列タイトル重複行）をスキップ
+
     const diff = row[21];
     const hasDiff = diff && diff !== "" && diff !== "0";
-    const bg = i === 0 ? "#fffde7" : (hasDiff ? "#fff0f0" : (i % 2 === 0 ? "#fafafa" : "#fff"));
-    html += `<tr style="background:${bg};">`;
+
+    // 2行目（合計行）は黄色固定・太字
+    const isTotal = (i === 1);
+    const bg = isTotal ? "#fffde7" : (hasDiff ? "#fff0f0" : (i % 2 === 0 ? "#fafafa" : "#fff"));
+    const fontWeight = isTotal ? "font-weight:bold;" : "";
+
+    html += `<tr style="background:${bg};${fontWeight}">`;
     row.forEach((cell, j) => {
       if (!hiddenCols.has(j)) {
         const isFirst = (j === 2);
         const align = j >= 3 ? "right" : "left";
         const stickyStyle = isFirst ? `position:sticky;left:0;z-index:1;background:${bg};` : "";
-        html += `<td style="border:1px solid #ddd;padding:5px 10px;text-align:${align};${stickyStyle}">${cell}</td>`;
+        html += `<td style="border:1px solid #ddd;padding:5px 10px;text-align:${align};${fontWeight}${stickyStyle}">${cell}</td>`;
       }
     });
     html += `</tr>`;
