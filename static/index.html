@@ -367,7 +367,7 @@
   </div>
 
   <!-- 右ペイン -->
-  <div class="right-pane">
+  <div class="right-pane" id="right-pane">
     <!-- 検索バー（右ペイン内） -->
     <div class="search-bar">
       <input class="search-input" id="search-input" type="text" placeholder="マニュアルを検索..."
@@ -921,6 +921,8 @@ function setView(mode) {
   document.getElementById('nav-pledge').classList.toggle('active', mode === 'pledge');
   const navAr = document.getElementById('nav-ar');
   if (navAr) navAr.classList.toggle('active', mode === 'ar');
+  const rightPane = document.getElementById('right-pane');
+  if (rightPane) rightPane.style.maxWidth = mode === 'ar' ? '90vw' : '860px';
 }
 
 function render() {
