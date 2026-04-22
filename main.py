@@ -21,8 +21,13 @@ QA_PATH       = "/400000_CC/shikonshosai/qa.json"
 USERS_PATH    = "/400000_CC/shikonshosai/users.json"
 IMAGES_BASE   = "/400000_CC/shikonshosai/manual_images"
 REPORTS_BASE  = "/外注先共有/400000_CC/shikonshosai/reports"
-INVOICES_PATH = "/外注先共有/400000_CC/shikonshosai/invoices.json"
-PLEDGES_PATH = "/外注先共有/400000_CC/shikonshosai/pledges.json"
+def get_invoices_path(year_month: str) -> str:
+    year = year_month.split("-")[0] if year_month else str(date.today().year)
+    return f"/外注先共有/400000_CC/shikonshosai/invoices_{year}.json"
+
+def get_pledges_path(year_month: str) -> str:
+    year = year_month.split("-")[0] if year_month else str(date.today().year)
+    return f"/外注先共有/400000_CC/shikonshosai/pledges_{year}.json"
 
 _cache: dict = {}
 _CACHE_TTL = 60
@@ -523,7 +528,7 @@ async def download_invoices_zip(year_month: str, user_id: str = Query(None)):
     current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
     if not current_user or current_user.get("role") not in ["admin", "soumu"]:
         raise HTTPException(status_code=403)
-    invoices_data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
+    invoices_data = await dropbox_get(get_invoices_path(year_month)) or {"invoices": []}
     target = [inv for inv in invoices_data.get("invoices", [])
               if inv.get("year_month") == year_month and inv.get("status") == "approved"]
     if not target:
@@ -553,7 +558,7 @@ async def download_invoices_excel(year_month: str, user_id: str = Query(None)):
     current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
     if not current_user or current_user.get("role", "staff") not in ["admin", "soumu"]:
         raise HTTPException(status_code=403)
-    data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
+    data = await dropbox_get(get_invoices_path(year_month)) or {"invoices": []}
     invoices = [inv for inv in data.get("invoices", [])
                 if inv.get("year_month") == year_month and inv.get("status") == "approved"]
 
@@ -616,7 +621,7 @@ async def download_invoices_excel(year_month: str, user_id: str = Query(None)):
 
 @app.get("/api/invoices/my/{user_id}/{year_month}")
 async def get_my_invoice(user_id: str, year_month: str):
-    data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
+    data = await dropbox_get(get_invoices_path(year_month)) or {"invoices": []}
     inv = next((i for i in data.get("invoices", [])
                 if i.get("user_id") == user_id and i.get("year_month") == year_month), None)
     return inv or {}
@@ -637,7 +642,7 @@ async def get_invoices(year_month: str = Query(None), user_id: str = Header(None
         target_ids = {u["id"] for u in users_data["users"] if u.get("group") == my_group}
     else:
         raise HTTPException(status_code=403)
-    data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
+    data = await dropbox_get(get_invoices_path(year_month or str(date.today().year) + "-01")) or {"invoices": []}
     invoices = [i for i in data.get("invoices", []) if i.get("user_id") in target_ids]
     if year_month:
         invoices = [i for i in invoices if i.get("year_month") == year_month]
@@ -650,7 +655,8 @@ async def submit_invoice(request: Request):
     if not user_id:
         raise HTTPException(status_code=401)
     year_month = body.get("year_month", "")
-    data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
+    invoices_path = get_invoices_path(year_month)
+    data = await dropbox_get(invoices_path) or {"invoices": []}
     data["invoices"] = [i for i in data.get("invoices", [])
                         if not (i.get("user_id") == user_id and i.get("year_month") == year_month)]
     new_inv = {
@@ -680,7 +686,7 @@ async def submit_invoice(request: Request):
         "total": body.get("total", 0),
     }
     data["invoices"].append(new_inv)
-    await dropbox_save(INVOICES_PATH, data)
+    await dropbox_save(invoices_path, data)
     return {"ok": True, "invoice": new_inv}
 
 @app.post("/api/invoices/approve")
@@ -694,17 +700,18 @@ async def approve_invoice(request: Request):
     approver = next((u for u in users_data.get("users", []) if u.get("id") == approver_id), None)
     if not approver or approver.get("role", "staff") == "staff":
         raise HTTPException(status_code=403)
-    data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
-    for inv in data.get("invoices", []):
-        if inv.get("id") == invoice_id:
+    current_year = str(date.today().year)
+    for year in [current_year, str(int(current_year) - 1)]:
+        invoices_path = get_invoices_path(f"{year}-01")
+        data = await dropbox_get(invoices_path) or {"invoices": []}
+        inv = next((i for i in data.get("invoices", []) if i.get("id") == invoice_id), None)
+        if inv:
             inv["status"] = "approved"
             inv["approved_at"] = date.today().isoformat()
             inv["approved_by"] = approver.get("name", approver_id)
-            break
-    else:
-        raise HTTPException(status_code=404)
-    await dropbox_save(INVOICES_PATH, data)
-    return {"ok": True}
+            await dropbox_save(invoices_path, data)
+            return {"ok": True}
+    raise HTTPException(status_code=404)
 
 @app.post("/api/invoices/reject")
 async def reject_invoice(request: Request):
@@ -717,18 +724,19 @@ async def reject_invoice(request: Request):
     rejector = next((u for u in users_data.get("users", []) if u.get("id") == rejector_id), None)
     if not rejector or rejector.get("role", "staff") == "staff":
         raise HTTPException(status_code=403)
-    data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
-    for inv in data.get("invoices", []):
-        if inv.get("id") == invoice_id:
+    current_year = str(date.today().year)
+    for year in [current_year, str(int(current_year) - 1)]:
+        invoices_path = get_invoices_path(f"{year}-01")
+        data = await dropbox_get(invoices_path) or {"invoices": []}
+        inv = next((i for i in data.get("invoices", []) if i.get("id") == invoice_id), None)
+        if inv:
             inv["status"] = "rejected"
             inv["rejected_at"] = date.today().isoformat()
             inv["rejected_by"] = rejector.get("name", rejector_id)
             inv["reject_reason"] = body.get("reason", "")
-            break
-    else:
-        raise HTTPException(status_code=404)
-    await dropbox_save(INVOICES_PATH, data)
-    return {"ok": True}
+            await dropbox_save(invoices_path, data)
+            return {"ok": True}
+    raise HTTPException(status_code=404)
 
 @app.get("/api/invoice/{user_id}/{year_month}")
 async def get_invoice_data(user_id: str, year_month: str):
@@ -748,7 +756,7 @@ async def get_invoice_data(user_id: str, year_month: str):
             "total_hours_display": to_hhmm(total_hours)}
 
 @app.get("/api/pledges")
-async def get_pledges(user_id: str = Header(None)):
+async def get_pledges(user_id: str = Header(None), year_month: str = Query(None)):
     users_data = await dropbox_get(USERS_PATH)
     if not users_data:
         raise HTTPException(status_code=500)
@@ -756,7 +764,8 @@ async def get_pledges(user_id: str = Header(None)):
     if not current_user:
         raise HTTPException(status_code=401)
     role = current_user.get("role", "staff")
-    data = await dropbox_get(PLEDGES_PATH) or {"pledges": []}
+    target_ym = year_month or f"{date.today().year}-{str(date.today().month).zfill(2)}"
+    data = await dropbox_get(get_pledges_path(target_ym)) or {"pledges": []}
     pledges = data.get("pledges", [])
     if role == "staff":
         pledges = [p for p in pledges if p.get("user_id") == user_id]
@@ -774,7 +783,8 @@ async def submit_pledge(request: Request):
     if not user_id:
         raise HTTPException(status_code=401)
     year_month = body.get("year_month", "")
-    data = await dropbox_get(PLEDGES_PATH) or {"pledges": []}
+    pledges_path = get_pledges_path(year_month)
+    data = await dropbox_get(pledges_path) or {"pledges": []}
     data["pledges"] = [p for p in data.get("pledges", [])
                        if not (p.get("user_id") == user_id and p.get("year_month") == year_month)]
     new_pledge = {
@@ -786,7 +796,7 @@ async def submit_pledge(request: Request):
         "checklist": body.get("checklist", []),
     }
     data["pledges"].append(new_pledge)
-    await dropbox_save(PLEDGES_PATH, data)
+    await dropbox_save(pledges_path, data)
     return {"ok": True, "pledge": new_pledge}
 
 
@@ -869,7 +879,7 @@ async def download_pledges_zip(year_month: str, user_id: str = Query(None)):
     current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
     if not current_user or current_user.get("role") not in ["admin", "soumu"]:
         raise HTTPException(status_code=403)
-    data = await dropbox_get(PLEDGES_PATH) or {"pledges": []}
+    data = await dropbox_get(get_pledges_path(year_month)) or {"pledges": []}
     targets = [p for p in data.get("pledges", []) if p.get("year_month") == year_month]
     if not targets:
         raise HTTPException(status_code=404, detail="提出済み誓約書がありません")
@@ -891,7 +901,7 @@ async def download_pledges_zip(year_month: str, user_id: str = Query(None)):
 
 @app.get("/api/pledges/my/{user_id}/{year_month}")
 async def get_my_pledge(user_id: str, year_month: str):
-    data = await dropbox_get(PLEDGES_PATH) or {"pledges": []}
+    data = await dropbox_get(get_pledges_path(year_month)) or {"pledges": []}
     pledge = next((p for p in data.get("pledges", [])
                    if p.get("user_id") == user_id and p.get("year_month") == year_month), None)
     return pledge or {}
@@ -910,7 +920,7 @@ async def register_to_freee(year_month: str, request: Request):
     if not current_user or current_user.get("role") not in ["admin", "soumu"]:
         raise HTTPException(status_code=403)
 
-    invoices_data = await dropbox_get(INVOICES_PATH) or {"invoices": []}
+    invoices_data = await dropbox_get(get_invoices_path(year_month)) or {"invoices": []}
 
     targets = [
         inv for inv in invoices_data["invoices"]
@@ -953,7 +963,7 @@ async def register_to_freee(year_month: str, request: Request):
             except Exception as e:
                 errors.append(f"{inv['user_name']}: {str(e)}")
 
-    await dropbox_save(INVOICES_PATH, invoices_data)
+    await dropbox_save(get_invoices_path(year_month), invoices_data)
 
     return {
         "ok": True,
@@ -961,6 +971,35 @@ async def register_to_freee(year_month: str, request: Request):
         "errors": errors,
         "message": f"{registered}件をfreeeに登録しました"
     }
+
+@app.post("/api/admin/migrate_to_yearly")
+async def migrate_to_yearly(request: Request):
+    # invoices移行
+    old_invoices = await dropbox_get("/外注先共有/400000_CC/shikonshosai/invoices.json") or {"invoices": []}
+    by_year: dict = {}
+    for inv in old_invoices.get("invoices", []):
+        year = (inv.get("year_month") or "")[:4] or str(date.today().year)
+        if year not in by_year:
+            by_year[year] = []
+        by_year[year].append(inv)
+    for year, invs in by_year.items():
+        path = f"/外注先共有/400000_CC/shikonshosai/invoices_{year}.json"
+        await dropbox_save(path, {"invoices": invs})
+
+    # pledges移行
+    old_pledges = await dropbox_get("/外注先共有/400000_CC/shikonshosai/pledges.json") or {"pledges": []}
+    by_year_p: dict = {}
+    for p in old_pledges.get("pledges", []):
+        year = (p.get("year_month") or "")[:4] or str(date.today().year)
+        if year not in by_year_p:
+            by_year_p[year] = []
+        by_year_p[year].append(p)
+    for year, pledges in by_year_p.items():
+        path = f"/外注先共有/400000_CC/shikonshosai/pledges_{year}.json"
+        await dropbox_save(path, {"pledges": pledges})
+
+    return {"ok": True, "invoices_years": list(by_year.keys()), "pledges_years": list(by_year_p.keys())}
+
 
 _companies_cache = None
 _companies_cache_at = 0

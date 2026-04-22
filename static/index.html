@@ -3162,7 +3162,7 @@ async function loadPledgeAdmin() {
   listEl.innerHTML = '<div style="padding:12px; text-align:center; color:#94a3b8; font-size:13px;">読み込み中...</div>';
   try {
     const [pledgeRes, usersRes] = await Promise.all([
-      fetch('/api/pledges', { headers: { 'user-id': _currentUser?.id || '' } }),
+      fetch(`/api/pledges?year_month=${_pledgeAdminMonth}`, { headers: { 'user-id': _currentUser?.id || '' } }),
       fetch('/api/users')
     ]);
     if (!pledgeRes.ok) throw new Error();
