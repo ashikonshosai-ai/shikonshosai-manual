@@ -962,6 +962,33 @@ async def register_to_freee(year_month: str, request: Request):
         "message": f"{registered}件をfreeeに登録しました"
     }
 
+_companies_cache = None
+_companies_cache_at = 0
+COMPANIES_CACHE_TTL = 60 * 60 * 24  # 24時間
+
+@app.get("/api/companies")
+async def get_companies():
+    global _companies_cache, _companies_cache_at
+
+    if _companies_cache and time.time() - _companies_cache_at < COMPANIES_CACHE_TTL:
+        return _companies_cache
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                f"{SHIKONSHOSAI_APP_URL}/api/internal/companies",
+                params={"secret": INTERNAL_SECRET}
+            )
+            if r.status_code == 200:
+                _companies_cache = r.json()
+                _companies_cache_at = time.time()
+                return _companies_cache
+    except Exception as e:
+        print(f"[companies] 取得失敗: {e}")
+
+    return []
+
+
 @app.get("/")
 async def root(response: Response):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"

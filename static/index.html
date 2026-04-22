@@ -727,6 +727,9 @@
             <input type="time" id="input-start" style="width:90px; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" oninput="calcHours()" />
             <input type="time" id="input-end" style="width:90px; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" oninput="calcHours()" />
             <span id="input-hours" style="width:60px; line-height:32px; font-size:13px; color:#1e3a5f; font-weight:500;">-</span>
+            <select id="report-company-select" onchange="onCompanySelect(this)" style="padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px; min-width:180px;">
+              <option value="">会社を選択...</option>
+            </select>
             <input type="text" id="input-code" placeholder="会社CD" style="width:70px; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" />
             <input type="text" id="input-company" placeholder="会社名" style="width:130px; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" />
           </div>
@@ -2551,6 +2554,34 @@ function calcSummary(entries) {
   return { totalHours: Math.round(totalHours * 100) / 100, days, companies };
 }
 
+async function loadCompanies() {
+  const cacheKey = 'companies_cache';
+  const cacheTimeKey = 'companies_cache_at';
+  const TTL = 24 * 60 * 60 * 1000;
+  const cached = localStorage.getItem(cacheKey);
+  const cachedAt = localStorage.getItem(cacheTimeKey);
+  if (cached && cachedAt && Date.now() - parseInt(cachedAt) < TTL) {
+    return JSON.parse(cached);
+  }
+  try {
+    const r = await fetch('/api/companies');
+    const data = await r.json();
+    localStorage.setItem(cacheKey, JSON.stringify(data));
+    localStorage.setItem(cacheTimeKey, Date.now().toString());
+    return data;
+  } catch (e) {
+    return [];
+  }
+}
+
+function onCompanySelect(select) {
+  const val = select.value;
+  if (!val) return;
+  const [code, name] = val.split('|');
+  document.getElementById('input-code').value = code;
+  document.getElementById('input-company').value = name;
+}
+
 async function showReport() {
   if (!_currentReportMonth) {
     const now = new Date();
@@ -2559,6 +2590,18 @@ async function showReport() {
   if (!_reportViewUserId) _reportViewUserId = _currentUser?.id;
   setView('report');
   render();
+  const select = document.getElementById('report-company-select');
+  if (select && select.options.length <= 1) {
+    const companies = await loadCompanies();
+    companies
+      .sort((a, b) => (a.code || '').localeCompare(b.code || ''))
+      .forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = `${c.code}|${c.name}`;
+        opt.textContent = c.code ? `${c.code} ${c.name}` : c.name;
+        select.appendChild(opt);
+      });
+  }
   await loadReport();
 }
 
@@ -2669,6 +2712,8 @@ function cancelEdit() {
   ['input-start', 'input-end', 'input-code', 'input-company', 'input-content'].forEach(id => {
     document.getElementById(id).value = '';
   });
+  const sel = document.getElementById('report-company-select');
+  if (sel) sel.value = '';
   document.getElementById('input-hours').textContent = '-';
   document.getElementById('save-btn').textContent = '保存';
   document.getElementById('cancel-btn').style.display = 'none';
