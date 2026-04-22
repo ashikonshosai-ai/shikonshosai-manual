@@ -736,7 +736,7 @@
           </div>
           <div style="display:flex; gap:8px; align-items:center;">
             <input type="text" id="input-content" placeholder="業務内容を入力..." style="flex:1; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" onkeydown="if(event.key==='Enter')saveEntry()" />
-            <button id="save-btn" onclick="saveEntry()" style="padding:6px 16px; background:#1e3a5f; color:white; border:none; border-radius:6px; font-size:13px; white-space:nowrap; cursor:pointer;">保存</button>
+            <button id="save-btn" type="button" onclick="saveEntry()" style="padding:6px 16px; background:#1e3a5f; color:white; border:none; border-radius:6px; font-size:13px; white-space:nowrap; cursor:pointer;">保存</button>
             <button id="cancel-btn" onclick="cancelEdit()" style="display:none; padding:6px 12px; background:#f1f5f9; color:#475569; border:1px solid #e2e8f0; border-radius:6px; font-size:13px; white-space:nowrap; cursor:pointer;">キャンセル</button>
           </div>
         </div>
@@ -2698,25 +2698,32 @@ function renderReport() {
   });
 }
 
+let _savingEntry = false;
 async function saveEntry() {
-  const date    = document.getElementById('input-date').value;
-  const start   = document.getElementById('input-start').value;
-  const end     = document.getElementById('input-end').value;
-  const code    = document.getElementById('input-code').value.trim();
-  const name    = document.getElementById('input-company').value.trim();
-  const content = document.getElementById('input-content').value.trim();
-  if (!date) { alert('日付を入力してください'); return; }
-  const hours = calcHours();
-  if (_editingEntryId) {
-    const idx = _reportData.entries.findIndex(e => e.id === _editingEntryId);
-    if (idx !== -1) {
-      _reportData.entries[idx] = { ..._reportData.entries[idx], date, start_time: start, end_time: end, hours, company_code: code, company_name: name, content };
+  if (_savingEntry) return;
+  _savingEntry = true;
+  try {
+    const date    = document.getElementById('input-date').value;
+    const start   = document.getElementById('input-start').value;
+    const end     = document.getElementById('input-end').value;
+    const code    = document.getElementById('input-code').value.trim();
+    const name    = document.getElementById('input-company').value.trim();
+    const content = document.getElementById('input-content').value.trim();
+    if (!date) { alert('日付を入力してください'); return; }
+    const hours = calcHours();
+    if (_editingEntryId) {
+      const idx = _reportData.entries.findIndex(e => e.id === _editingEntryId);
+      if (idx !== -1) {
+        _reportData.entries[idx] = { ..._reportData.entries[idx], date, start_time: start, end_time: end, hours, company_code: code, company_name: name, content };
+      }
+    } else {
+      _reportData.entries.push({ id: 'e_' + Date.now(), date, start_time: start, end_time: end, hours, company_code: code, company_name: name, content });
     }
-  } else {
-    _reportData.entries.push({ id: 'e_' + Date.now(), date, start_time: start, end_time: end, hours, company_code: code, company_name: name, content });
+    await postReport();
+    cancelEdit();
+  } finally {
+    _savingEntry = false;
   }
-  await postReport();
-  cancelEdit();
 }
 
 function cancelEdit() {
