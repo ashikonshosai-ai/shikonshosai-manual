@@ -4,8 +4,8 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from datetime import date, datetime
 import dropbox
 from dropbox.exceptions import ApiError as DropboxApiError
-from fastapi import FastAPI, Request, UploadFile, File, Form, Query, Header, HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import FastAPI, Request, UploadFile, File, Form, Query, Header, HTTPException, Response
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
@@ -961,5 +961,12 @@ async def register_to_freee(year_month: str, request: Request):
         "errors": errors,
         "message": f"{registered}件をfreeeに登録しました"
     }
+
+@app.get("/")
+async def root(response: Response):
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return FileResponse("static/index.html")
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
