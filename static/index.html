@@ -2652,18 +2652,20 @@ function renderArTable(rows) {
     const diff = row[21];
     const hasDiff = diff && diff !== "" && diff !== "0";
 
-    // 2行目（合計行）は黄色固定・太字
     const isTotal = (i === 1);
     const bg = isTotal ? "#fffde7" : (hasDiff ? "#fff0f0" : (i % 2 === 0 ? "#fafafa" : "#fff"));
     const fontWeight = isTotal ? "font-weight:bold;" : "";
+    const rowSticky = isTotal ? "position:sticky;top:37px;z-index:2;" : "";
 
-    html += `<tr style="background:${bg};${fontWeight}">`;
+    html += `<tr style="background:${bg};${fontWeight}${rowSticky}">`;
     row.forEach((cell, j) => {
       if (!hiddenCols.has(j)) {
         const isFirst = (j === 2);
         const align = j >= 3 ? "right" : "left";
-        const stickyStyle = isFirst ? `position:sticky;left:0;z-index:1;background:${bg};` : "";
-        html += `<td style="border:1px solid #ddd;padding:5px 10px;text-align:${align};${fontWeight}${stickyStyle}">${cell}</td>`;
+        const stickyStyle = isFirst
+          ? `position:sticky;left:0;z-index:${isTotal ? 3 : 1};background:${bg};`
+          : "";
+        html += `<td style="border:1px solid #ddd;padding:5px 10px;text-align:${align};${fontWeight}${stickyStyle}${isTotal ? "position:sticky;top:37px;" : ""}">${cell}</td>`;
       }
     });
     html += `</tr>`;
