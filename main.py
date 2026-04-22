@@ -972,35 +972,6 @@ async def register_to_freee(year_month: str, request: Request):
         "message": f"{registered}件をfreeeに登録しました"
     }
 
-@app.post("/api/admin/migrate_to_yearly")
-async def migrate_to_yearly(request: Request):
-    # invoices移行
-    old_invoices = await dropbox_get("/外注先共有/400000_CC/shikonshosai/invoices.json") or {"invoices": []}
-    by_year: dict = {}
-    for inv in old_invoices.get("invoices", []):
-        year = (inv.get("year_month") or "")[:4] or str(date.today().year)
-        if year not in by_year:
-            by_year[year] = []
-        by_year[year].append(inv)
-    for year, invs in by_year.items():
-        path = f"/外注先共有/400000_CC/shikonshosai/invoices_{year}.json"
-        await dropbox_save(path, {"invoices": invs})
-
-    # pledges移行
-    old_pledges = await dropbox_get("/外注先共有/400000_CC/shikonshosai/pledges.json") or {"pledges": []}
-    by_year_p: dict = {}
-    for p in old_pledges.get("pledges", []):
-        year = (p.get("year_month") or "")[:4] or str(date.today().year)
-        if year not in by_year_p:
-            by_year_p[year] = []
-        by_year_p[year].append(p)
-    for year, pledges in by_year_p.items():
-        path = f"/外注先共有/400000_CC/shikonshosai/pledges_{year}.json"
-        await dropbox_save(path, {"pledges": pledges})
-
-    return {"ok": True, "invoices_years": list(by_year.keys()), "pledges_years": list(by_year_p.keys())}
-
-
 _companies_cache = None
 _companies_cache_at = 0
 COMPANIES_CACHE_TTL = 60 * 60 * 24  # 24時間
