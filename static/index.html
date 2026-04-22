@@ -751,8 +751,6 @@
             <select id="report-company-select" onchange="onCompanySelect(this)" style="padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px; min-width:180px;">
               <option value="">会社を選択...</option>
             </select>
-            <input type="text" id="input-code" placeholder="会社CD" style="width:70px; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" />
-            <input type="text" id="input-company" placeholder="会社名" style="width:130px; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" />
           </div>
           <div style="display:flex; gap:8px; align-items:center;">
             <input type="text" id="input-content" placeholder="業務内容を入力..." style="flex:1; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" onkeydown="if(event.key==='Enter')saveEntry()" />
@@ -2632,47 +2630,50 @@ function renderArTable(rows) {
   const cols = ["管理番号","取引先名","freee取引先名","前月末残高","入金額","前月繰越",
                  "顧問料","記帳代行","FX2","FX4","データ保管","eマイスター","PX2","MX3",
                  "マイポータル","給与計算","その他","決算報酬","合計","当月末残高","freee残高","差額"];
+  const hiddenCols = new Set([0, 1]);
 
-  const hiddenCols = new Set([0, 1]); // A列（管理番号）・B列（取引先名）を非表示
-
-  let html = `<table style="border-collapse:collapse;font-size:13px;white-space:nowrap;">`;
-  html += `<thead><tr style="background:#f0f4ff;">`;
+  let headerHtml = `<thead>`;
+  headerHtml += `<tr style="background:#f0f4ff;">`;
   cols.forEach((c, i) => {
     if (!hiddenCols.has(i)) {
       const isFirst = (i === 2);
-      const stickyStyle = isFirst ? "position:sticky;left:0;z-index:3;background:#f0f4ff;" : "";
-      html += `<th style="border:1px solid #ddd;padding:6px 10px;position:sticky;top:0;z-index:${isFirst ? 4 : 2};background:#f0f4ff;${stickyStyle}">${c}</th>`;
+      headerHtml += `<th style="border:1px solid #ddd;padding:6px 10px;position:sticky;top:0;z-index:${isFirst ? 4 : 2};background:#f0f4ff;${isFirst ? 'left:0;' : ''}">${c}</th>`;
     }
   });
-  html += `</tr></thead><tbody>`;
+  headerHtml += `</tr>`;
 
+  const totalRow = rows[1] || [];
+  headerHtml += `<tr style="background:#fffde7;font-weight:bold;">`;
+  totalRow.forEach((cell, j) => {
+    if (!hiddenCols.has(j)) {
+      const isFirst = (j === 2);
+      const align = j >= 3 ? "right" : "left";
+      headerHtml += `<td style="border:1px solid #ddd;padding:5px 10px;text-align:${align};position:sticky;top:37px;z-index:${isFirst ? 4 : 2};background:#fffde7;${isFirst ? 'left:0;' : ''}">${cell}</td>`;
+    }
+  });
+  headerHtml += `</tr></thead>`;
+
+  let bodyHtml = `<tbody>`;
   rows.forEach((row, i) => {
-    if (i === 0) return; // 1行目（列タイトル重複行）をスキップ
-
+    if (i === 0 || i === 1) return;
     const diff = row[21];
     const hasDiff = diff && diff !== "" && diff !== "0";
-
-    const isTotal = (i === 1);
-    const bg = isTotal ? "#fffde7" : (hasDiff ? "#fff0f0" : (i % 2 === 0 ? "#fafafa" : "#fff"));
-    const fontWeight = isTotal ? "font-weight:bold;" : "";
-    const rowSticky = isTotal ? "position:sticky;top:36px;z-index:2;" : "";
-
-    html += `<tr style="background:${bg};${fontWeight}${rowSticky}">`;
+    const bg = hasDiff ? "#fff0f0" : (i % 2 === 0 ? "#fafafa" : "#fff");
+    bodyHtml += `<tr style="background:${bg};">`;
     row.forEach((cell, j) => {
       if (!hiddenCols.has(j)) {
         const isFirst = (j === 2);
         const align = j >= 3 ? "right" : "left";
-        const stickyStyle = isFirst
-          ? `position:sticky;left:0;z-index:${isTotal ? 3 : 1};background:${bg};`
-          : "";
-        html += `<td style="border:1px solid #ddd;padding:5px 10px;text-align:${align};${fontWeight}${stickyStyle}${isTotal ? "position:sticky;top:36px;" : ""}">${cell}</td>`;
+        const stickyStyle = isFirst ? `position:sticky;left:0;z-index:1;background:${bg};` : "";
+        bodyHtml += `<td style="border:1px solid #ddd;padding:5px 10px;text-align:${align};${stickyStyle}">${cell}</td>`;
       }
     });
-    html += `</tr>`;
+    bodyHtml += `</tr>`;
   });
+  bodyHtml += `</tbody>`;
 
-  html += `</tbody></table>`;
-  document.getElementById("ar-table-container").innerHTML = html;
+  document.getElementById("ar-table-container").innerHTML =
+    `<table style="border-collapse:collapse;font-size:13px;white-space:nowrap;min-width:100%;">${headerHtml}${bodyHtml}</table>`;
 }
 
 async function arMonthStart() {
@@ -2778,9 +2779,7 @@ async function loadCompanies() {
 function onCompanySelect(select) {
   const val = select.value;
   if (!val) return;
-  const [code, name] = val.split('|');
-  document.getElementById('input-code').value = code;
-  document.getElementById('input-company').value = name;
+  // code and name are stored in the select value; no separate inputs needed
 }
 
 async function showReport() {
@@ -2895,8 +2894,8 @@ async function saveEntry() {
     const date    = document.getElementById('input-date').value;
     const start   = document.getElementById('input-start').value;
     const end     = document.getElementById('input-end').value;
-    const code    = document.getElementById('input-code').value.trim();
-    const name    = document.getElementById('input-company').value.trim();
+    const selVal  = document.getElementById('report-company-select').value;
+    const [code, name] = selVal ? selVal.split('|') : ['', ''];
     const content = document.getElementById('input-content').value.trim();
     if (!date) { alert('日付を入力してください'); return; }
     const hours = calcHours();
@@ -2917,7 +2916,7 @@ async function saveEntry() {
 
 function cancelEdit() {
   _editingEntryId = null;
-  ['input-start', 'input-end', 'input-code', 'input-company', 'input-content'].forEach(id => {
+  ['input-start', 'input-end', 'input-content'].forEach(id => {
     document.getElementById(id).value = '';
   });
   const sel = document.getElementById('report-company-select');
@@ -2935,8 +2934,12 @@ function editEntry(entryId) {
   document.getElementById('input-date').value    = entry.date;
   document.getElementById('input-start').value   = entry.start_time || '';
   document.getElementById('input-end').value     = entry.end_time || '';
-  document.getElementById('input-code').value    = entry.company_code || '';
-  document.getElementById('input-company').value = entry.company_name || '';
+  const sel = document.getElementById('report-company-select');
+  if (sel && entry.company_code && entry.company_name) {
+    sel.value = `${entry.company_code}|${entry.company_name}`;
+  } else if (sel) {
+    sel.value = '';
+  }
   document.getElementById('input-content').value = entry.content || '';
   document.getElementById('save-btn').textContent = '更新';
   document.getElementById('cancel-btn').style.display = 'inline-block';
