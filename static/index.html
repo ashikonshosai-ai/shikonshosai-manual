@@ -703,7 +703,7 @@
         </div>
         <div id="ar-message" style="margin-bottom:12px;"></div>
         <div id="ar-diff-report" style="margin-bottom:16px;"></div>
-        <div id="ar-table-container" style="overflow-x:auto;"></div>
+        <div id="ar-table-container" style="overflow:auto;width:100%;max-width:100%;max-height:calc(100vh - 220px);"></div>
       </div>
 
       <!-- ユーザー管理ビュー -->
@@ -2639,7 +2639,9 @@ function renderArTable(rows) {
   html += `<thead><tr style="background:#f0f4ff;">`;
   cols.forEach((c, i) => {
     if (!hiddenCols.has(i)) {
-      html += `<th style="border:1px solid #ddd;padding:6px 10px;">${c}</th>`;
+      const isFirst = (i === 2);
+      const stickyStyle = isFirst ? "position:sticky;left:0;z-index:3;background:#f0f4ff;" : "";
+      html += `<th style="border:1px solid #ddd;padding:6px 10px;position:sticky;top:0;z-index:${isFirst ? 4 : 2};background:#f0f4ff;${stickyStyle}">${c}</th>`;
     }
   });
   html += `</tr></thead><tbody>`;
@@ -2651,8 +2653,10 @@ function renderArTable(rows) {
     html += `<tr style="background:${bg};">`;
     row.forEach((cell, j) => {
       if (!hiddenCols.has(j)) {
+        const isFirst = (j === 2);
         const align = j >= 3 ? "right" : "left";
-        html += `<td style="border:1px solid #ddd;padding:5px 10px;text-align:${align};">${cell}</td>`;
+        const stickyStyle = isFirst ? `position:sticky;left:0;z-index:1;background:${bg};` : "";
+        html += `<td style="border:1px solid #ddd;padding:5px 10px;text-align:${align};${stickyStyle}">${cell}</td>`;
       }
     });
     html += `</tr>`;
