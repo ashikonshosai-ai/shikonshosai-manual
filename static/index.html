@@ -2622,28 +2622,42 @@ async function arLoadSheet() {
 }
 
 function renderArTable(rows) {
-  const container = document.getElementById('ar-table-container');
-  if (!rows || rows.length === 0) { container.innerHTML = '<p style="color:#94a3b8;">データがありません</p>'; return; }
-  const cols = ['管理番号','取引先名','freee取引先名','前月末残高','入金額','前月繰越',
-                 '顧問料','記帳代行','FX2','FX4','データ保管','eマイスター','PX2','MX3',
-                 'マイポータル','給与計算','その他','決算報酬','合計','当月末残高','freee残高','差額'];
-  let html = '<table style="border-collapse:collapse;font-size:12px;white-space:nowrap;">';
-  html += '<thead><tr style="background:#e8edf7;position:sticky;top:0;">';
-  cols.forEach(c => { html += `<th style="border:1px solid #ddd;padding:5px 8px;">${c}</th>`; });
-  html += '</tr></thead><tbody>';
+  if (!rows || rows.length === 0) {
+    document.getElementById("ar-table-container").innerHTML = "<p>データがありません</p>";
+    return;
+  }
+
+  const cols = ["管理番号","取引先名","freee取引先名","前月末残高","入金額","前月繰越",
+                 "顧問料","記帳代行","FX2","FX4","データ保管","eマイスター","PX2","MX3",
+                 "マイポータル","給与計算","その他","決算報酬","合計","当月末残高","freee残高","差額"];
+
+  const hiddenCols = new Set([0, 1]); // A列（管理番号）・B列（取引先名）を非表示
+
+  let html = `<table style="border-collapse:collapse;font-size:13px;white-space:nowrap;">`;
+  html += `<thead><tr style="background:#f0f4ff;">`;
+  cols.forEach((c, i) => {
+    if (!hiddenCols.has(i)) {
+      html += `<th style="border:1px solid #ddd;padding:6px 10px;">${c}</th>`;
+    }
+  });
+  html += `</tr></thead><tbody>`;
+
   rows.forEach((row, i) => {
     const diff = row[21];
-    const hasDiff = diff && diff !== '' && diff !== '0';
-    const bg = i === 0 ? '#fffde7' : (hasDiff ? '#fff0f0' : (i % 2 === 0 ? '#fafafa' : '#fff'));
+    const hasDiff = diff && diff !== "" && diff !== "0";
+    const bg = i === 0 ? "#fffde7" : (hasDiff ? "#fff0f0" : (i % 2 === 0 ? "#fafafa" : "#fff"));
     html += `<tr style="background:${bg};">`;
     row.forEach((cell, j) => {
-      const align = j >= 3 ? 'right' : 'left';
-      html += `<td style="border:1px solid #ddd;padding:4px 8px;text-align:${align};">${cell}</td>`;
+      if (!hiddenCols.has(j)) {
+        const align = j >= 3 ? "right" : "left";
+        html += `<td style="border:1px solid #ddd;padding:5px 10px;text-align:${align};">${cell}</td>`;
+      }
     });
-    html += '</tr>';
+    html += `</tr>`;
   });
-  html += '</tbody></table>';
-  container.innerHTML = html;
+
+  html += `</tbody></table>`;
+  document.getElementById("ar-table-container").innerHTML = html;
 }
 
 async function arMonthStart() {
