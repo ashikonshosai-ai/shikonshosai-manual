@@ -1475,9 +1475,9 @@ async def _sync_freee_partner(user: dict):
                     "invoice_number": user.get("invoice_number"),
                     "bank_name": user.get("bank_name"),
                     "bank_branch": user.get("bank_branch"),
-                    "bank_account_type": user.get("bank_account_type"),
-                    "bank_account_number": user.get("bank_account_number"),
-                    "bank_account_name": user.get("bank_account_name"),
+                    "bank_account_type": user.get("bank_type"),
+                    "bank_account_number": user.get("bank_number"),
+                    "bank_account_name": user.get("bank_holder"),
                 },
             )
     except Exception:
