@@ -6,7 +6,7 @@ import dropbox
 from dropbox.exceptions import ApiError as DropboxApiError
 import gspread
 from google.oauth2.service_account import Credentials
-from fastapi import FastAPI, Request, UploadFile, File, Form, Query, Header, HTTPException, Response
+from fastapi import FastAPI, Request, UploadFile, File, Form, Query, Header, HTTPException, Response, Depends
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
