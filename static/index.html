@@ -451,12 +451,16 @@
                 <input id="profile-bank-name" type="text" placeholder="〇〇銀行" autocomplete="off" style="width:100%; margin-top:4px; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; box-sizing:border-box;" oninput="bankNameInput(this)" />
                 <input type="hidden" id="profile-bank-code" />
                 <div id="bank-name-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:200;max-height:200px;overflow-y:auto;"></div>
+                <label style="font-size:12px; color:#64748b; margin-top:6px; display:block;">銀行名（カナ）</label>
+                <input id="profile-bank-name-kana" type="text" placeholder="カナ" style="width:100%; margin-top:4px; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; box-sizing:border-box;" />
               </div>
               <div style="flex:1; min-width:140px; position:relative;">
                 <label style="font-size:12px; color:#64748b;">支店名<span id="profile-branch-code-display" style="color:gray;font-size:0.85em;margin-left:4px;"></span></label>
                 <input id="profile-bank-branch" type="text" placeholder="〇〇支店" autocomplete="off" style="width:100%; margin-top:4px; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; box-sizing:border-box;" oninput="bankBranchInput(this)" />
                 <input type="hidden" id="profile-branch-code" />
                 <div id="bank-branch-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:200;max-height:200px;overflow-y:auto;"></div>
+                <label style="font-size:12px; color:#64748b; margin-top:6px; display:block;">支店名（カナ）</label>
+                <input id="profile-bank-branch-kana" type="text" placeholder="カナ" style="width:100%; margin-top:4px; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; box-sizing:border-box;" />
               </div>
             </div>
             <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
@@ -1701,9 +1705,11 @@ async function showProfile() {
   document.getElementById('profile-postal').value = user.postal_code || '';
   document.getElementById('profile-address').value = user.address || '';
   document.getElementById('profile-bank-name').value = user.bank_name || '';
+  document.getElementById('profile-bank-name-kana').value = user.bank_name_kana || '';
   document.getElementById('profile-bank-code').value = user.bank_code || '';
   document.getElementById('profile-bank-code-display').textContent = user.bank_code || '';
   document.getElementById('profile-bank-branch').value = user.bank_branch || '';
+  document.getElementById('profile-bank-branch-kana').value = user.branch_kana || '';
   document.getElementById('profile-branch-code').value = user.branch_code || '';
   document.getElementById('profile-branch-code-display').textContent = user.branch_code || '';
   document.getElementById('profile-bank-type').value = user.bank_type || '普通';
@@ -1731,21 +1737,23 @@ function bankNameInput(el) {
       const banks = await res.json();
       if (!banks.length) { dd.style.display = 'none'; return; }
       dd.innerHTML = banks.slice(0, 10).map(b =>
-        `<div data-name="${esc(b.name)}" data-code="${esc(b.code)}" onclick="selectBank(this.dataset.name,this.dataset.code)" style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">${esc(b.name)}<span style="color:#94a3b8;font-size:11px;margin-left:6px;">${esc(b.code)}</span></div>`
+        `<div data-name="${esc(b.name)}" data-code="${esc(b.code)}" data-kana="${esc(b.kana||'')}" onclick="selectBank(this.dataset.name,this.dataset.code,this.dataset.kana)" style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">${esc(b.name)}<span style="color:#94a3b8;font-size:11px;margin-left:6px;">${esc(b.kana||'')} ${esc(b.code)}</span></div>`
       ).join('');
       dd.style.display = 'block';
     } catch(e) { dd.style.display = 'none'; }
   }, 300);
 }
 
-function selectBank(name, code) {
+function selectBank(name, code, kana) {
   document.getElementById('profile-bank-name').value = name;
   document.getElementById('profile-bank-code').value = code;
   document.getElementById('profile-bank-code-display').textContent = code;
+  document.getElementById('profile-bank-name-kana').value = kana || '';
   document.getElementById('bank-name-dropdown').style.display = 'none';
   document.getElementById('profile-bank-branch').value = '';
   document.getElementById('profile-branch-code').value = '';
   document.getElementById('profile-branch-code-display').textContent = '';
+  document.getElementById('profile-bank-branch-kana').value = '';
 }
 
 function bankBranchInput(el) {
@@ -1761,17 +1769,18 @@ function bankBranchInput(el) {
       const branches = await res.json();
       if (!branches.length) { dd.style.display = 'none'; return; }
       dd.innerHTML = branches.slice(0, 10).map(b =>
-        `<div data-name="${esc(b.name)}" data-code="${esc(b.code)}" onclick="selectBranch(this.dataset.name,this.dataset.code)" style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">${esc(b.name)}<span style="color:#94a3b8;font-size:11px;margin-left:6px;">${esc(b.code)}</span></div>`
+        `<div data-name="${esc(b.name)}" data-code="${esc(b.code)}" data-kana="${esc(b.kana||'')}" onclick="selectBranch(this.dataset.name,this.dataset.code,this.dataset.kana)" style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">${esc(b.name)}<span style="color:#94a3b8;font-size:11px;margin-left:6px;">${esc(b.kana||'')} ${esc(b.code)}</span></div>`
       ).join('');
       dd.style.display = 'block';
     } catch(e) { dd.style.display = 'none'; }
   }, 300);
 }
 
-function selectBranch(name, code) {
+function selectBranch(name, code, kana) {
   document.getElementById('profile-bank-branch').value = name;
   document.getElementById('profile-branch-code').value = code;
   document.getElementById('profile-branch-code-display').textContent = code;
+  document.getElementById('profile-bank-branch-kana').value = kana || '';
   document.getElementById('bank-branch-dropdown').style.display = 'none';
 }
 
@@ -1803,8 +1812,10 @@ async function saveProfile() {
     postal_code: document.getElementById('profile-postal').value.trim(),
     address: document.getElementById('profile-address').value.trim(),
     bank_name: document.getElementById('profile-bank-name').value.trim(),
+    bank_name_kana: document.getElementById('profile-bank-name-kana').value.trim(),
     bank_code: document.getElementById('profile-bank-code').value.trim(),
     bank_branch: document.getElementById('profile-bank-branch').value.trim(),
+    branch_kana: document.getElementById('profile-bank-branch-kana').value.trim(),
     branch_code: document.getElementById('profile-branch-code').value.trim(),
     bank_type: document.getElementById('profile-bank-type').value,
     bank_number: document.getElementById('profile-bank-number').value.trim(),

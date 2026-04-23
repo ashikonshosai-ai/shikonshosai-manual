@@ -352,7 +352,7 @@ async def update_profile(request: Request):
         raise HTTPException(status_code=401)
     allowed_fields = [
         "photo", "personal_email", "phone", "postal_code", "address",
-        "bank_name", "bank_code", "bank_branch", "branch_code",
+        "bank_name", "bank_name_kana", "bank_code", "bank_branch", "branch_kana", "branch_code",
         "bank_type", "bank_number",
         "bank_holder", "invoice_number", "hourly_rate"
     ]
@@ -1475,7 +1475,9 @@ async def _sync_freee_partner(user: dict):
                     "name": user.get("name", ""),
                     "invoice_number": user.get("invoice_number"),
                     "bank_name": user.get("bank_name"),
+                    "bank_name_kana": user.get("bank_name_kana"),
                     "bank_branch": user.get("bank_branch"),
+                    "branch_kana": user.get("branch_kana"),
                     "bank_account_type": user.get("bank_type"),
                     "bank_account_number": user.get("bank_number"),
                     "bank_account_name": user.get("bank_holder"),
