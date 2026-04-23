@@ -489,7 +489,7 @@
             </div>
           </div>
           <div id="profile-err" style="display:none; color:#e53e3e; font-size:13px;"></div>
-          <button onclick="saveProfile()" style="padding:10px; background:#1e3a5f; color:white; border:none; border-radius:6px; font-size:14px; cursor:pointer; margin-top:4px;">保存</button>
+          <button id="profile-save-btn" onclick="saveProfile()" style="padding:10px; background:#1e3a5f; color:white; border:none; border-radius:6px; font-size:14px; cursor:pointer; margin-top:4px;">保存</button>
         </div>
       </div>
 
@@ -1733,42 +1733,50 @@ async function saveProfile() {
     hourly_rate: document.getElementById('profile-hourly-rate').value ? Number(document.getElementById('profile-hourly-rate').value) : '',
   };
 
-  const r = await fetch('/api/users/profile', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  if (!r.ok) { errEl.textContent = '保存に失敗しました'; errEl.style.display = 'block'; return; }
-
-  if (newPw) {
-    const r2 = await fetch('/api/auth/change_password', {
+  const btn = document.getElementById('profile-save-btn');
+  btn.textContent = '処理中...';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/users/profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: _currentUser?.email, new_password: newPw })
+      body: JSON.stringify(body)
     });
-    if (!r2.ok) { errEl.textContent = 'パスワード変更に失敗しました'; errEl.style.display = 'block'; return; }
-    _sessionPassword = newPw;
-    sessionStorage.setItem('manual_session_pw', newPw);
+    if (!r.ok) { errEl.textContent = '保存に失敗しました'; errEl.style.display = 'block'; return; }
+
+    if (newPw) {
+      const r2 = await fetch('/api/auth/change_password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: _currentUser?.email, new_password: newPw })
+      });
+      if (!r2.ok) { errEl.textContent = 'パスワード変更に失敗しました'; errEl.style.display = 'block'; return; }
+      _sessionPassword = newPw;
+      sessionStorage.setItem('manual_session_pw', newPw);
+    }
+
+    const stored = JSON.parse(localStorage.getItem('manual_user') || '{}');
+    const updatable = ['photo','personal_email','phone','postal_code','address','bank_name','bank_branch','bank_type','bank_number','bank_holder','invoice_number','hourly_rate'];
+    updatable.forEach(f => { stored[f] = body[f]; });
+    localStorage.setItem('manual_user', JSON.stringify(stored));
+    _currentUser = { ..._currentUser, ...stored };
+
+    // ヘッダーアバター更新
+    const avatar = document.getElementById('user-avatar');
+    if (_profilePhotoBase64) {
+      avatar.innerHTML = `<img src="${_profilePhotoBase64}" style="width:100%;height:100%;object-fit:cover;">`;
+    } else {
+      avatar.innerHTML = '';
+      avatar.textContent = (_currentUser?.name || '?').charAt(0);
+    }
+
+    document.getElementById('profile-new-pw').value = '';
+    document.getElementById('profile-new-pw-confirm').value = '';
+    alert('保存しました');
+  } finally {
+    btn.textContent = '保存';
+    btn.disabled = false;
   }
-
-  const stored = JSON.parse(localStorage.getItem('manual_user') || '{}');
-  const updatable = ['photo','personal_email','phone','postal_code','address','bank_name','bank_branch','bank_type','bank_number','bank_holder','invoice_number','hourly_rate'];
-  updatable.forEach(f => { stored[f] = body[f]; });
-  localStorage.setItem('manual_user', JSON.stringify(stored));
-  _currentUser = { ..._currentUser, ...stored };
-
-  // ヘッダーアバター更新
-  const avatar = document.getElementById('user-avatar');
-  if (_profilePhotoBase64) {
-    avatar.innerHTML = `<img src="${_profilePhotoBase64}" style="width:100%;height:100%;object-fit:cover;">`;
-  } else {
-    avatar.innerHTML = '';
-    avatar.textContent = (_currentUser?.name || '?').charAt(0);
-  }
-
-  document.getElementById('profile-new-pw').value = '';
-  document.getElementById('profile-new-pw-confirm').value = '';
-  alert('保存しました');
 }
 
 // ── 請求書 ──────────────────────────────────────────
