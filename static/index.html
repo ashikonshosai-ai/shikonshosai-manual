@@ -8,6 +8,7 @@
 <link rel="apple-touch-icon" href="/favicon.png">
 <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
 <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, -apple-system, sans-serif; font-size: 14px; background: #f8fafc; height: 100vh; display: flex; flex-direction: column; }
@@ -354,6 +355,7 @@
       <div class="nav-item" id="nav-pledge" onclick="showPledge()">📝 誓約書</div>
       <div class="nav-item" id="nav-invoice-admin" style="display:none" onclick="showInvoiceAdmin()">📋 請求書管理</div>
       <div class="nav-item" id="nav-ar" style="display:none" onclick="showAr()">💰 売掛管理</div>
+      <div class="nav-item" id="nav-forecast" style="display:none" onclick="showForecast()">📈 売上予測</div>
       <div class="nav-item" id="nav-qa" onclick="showQA()">
         ❓ Q&A
         <span id="qa-badge" style="display:none; margin-left:auto; font-size:10px; background:#E24B4A; color:white; border-radius:10px; padding:1px 6px;"></span>
@@ -716,6 +718,26 @@
         <div id="ar-table-container" style="overflow:auto;width:100%;max-width:100%;max-height:calc(100vh - 220px);"></div>
       </div>
 
+      <!-- 売上予測ビュー -->
+      <div id="forecast-view" style="display:none; padding:16px;">
+        <div class="right-header" style="margin-bottom:16px;">
+          <div class="right-title">📈 売上予測</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px;flex-wrap:wrap;">
+          <button onclick="loadForecast()" style="padding:7px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;font-size:13px;cursor:pointer;">🔄 最新データ取得</button>
+          <button onclick="downloadForecastExcel()" style="padding:7px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;font-size:13px;cursor:pointer;">📥 Excelダウンロード</button>
+        </div>
+        <div id="forecast-message" style="margin-bottom:12px;"></div>
+        <div id="forecast-summary" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1.5rem;"></div>
+        <div id="forecast-legend" style="display:flex;gap:16px;margin-bottom:8px;font-size:12px;color:#666;flex-wrap:wrap;"></div>
+        <div style="position:relative;width:100%;height:240px;margin-bottom:1.5rem;">
+          <canvas id="forecastChart" role="img" aria-label="月別売上予測棒グラフ">月別売上予測</canvas>
+        </div>
+        <div id="forecast-period-badges" style="display:flex;gap:8px;margin-bottom:10px;align-items:center;"></div>
+        <div id="forecast-table-container" style="overflow-x:auto;border-radius:8px;border:0.5px solid #ddd;"></div>
+        <div style="font-size:11px;color:#999;margin-top:8px;">マスタデータをもとに自動計算</div>
+      </div>
+
       <!-- ユーザー管理ビュー -->
       <div id="user-mgmt-view" style="display:none">
         <div class="right-header">
@@ -920,6 +942,7 @@ function setView(mode) {
   document.getElementById('invoice-admin-view').style.display = mode === 'invoice-admin' ? 'block' : 'none';
   document.getElementById('pledge-view').style.display = mode === 'pledge' ? 'block' : 'none';
   document.getElementById('ar-view').style.display = mode === 'ar' ? 'block' : 'none';
+  document.getElementById('forecast-view').style.display = mode === 'forecast' ? 'block' : 'none';
   document.getElementById('nav-home').classList.toggle('active', mode === 'home');
   document.getElementById('nav-qa').classList.toggle('active', mode === 'qa');
   document.getElementById('nav-report').classList.toggle('active', mode === 'report');
@@ -932,8 +955,10 @@ function setView(mode) {
   document.getElementById('nav-pledge').classList.toggle('active', mode === 'pledge');
   const navAr = document.getElementById('nav-ar');
   if (navAr) navAr.classList.toggle('active', mode === 'ar');
+  const navForecast = document.getElementById('nav-forecast');
+  if (navForecast) navForecast.classList.toggle('active', mode === 'forecast');
   const rightPane = document.getElementById('right-pane');
-  if (rightPane) rightPane.style.maxWidth = mode === 'ar' ? '90vw' : '860px';
+  if (rightPane) rightPane.style.maxWidth = (mode === 'ar' || mode === 'forecast') ? '90vw' : '860px';
 }
 
 function render() {
@@ -941,6 +966,8 @@ function render() {
   if (navUM) navUM.style.display = (['admin', 'leader', 'soumu'].includes(_currentUser?.role)) ? 'flex' : 'none';
   const navAr = document.getElementById('nav-ar');
   if (navAr) navAr.style.display = (['admin', 'leader', 'soumu'].includes(_currentUser?.role)) ? 'flex' : 'none';
+  const navForecast = document.getElementById('nav-forecast');
+  if (navForecast) navForecast.style.display = (['admin', 'leader', 'soumu'].includes(_currentUser?.role)) ? 'flex' : 'none';
   const navIA = document.getElementById('nav-invoice-admin');
   if (navIA) navIA.style.display = (['admin','leader','soumu'].includes(_currentUser?.role)) ? 'flex' : 'none';
   // 左ペイン
@@ -3562,6 +3589,167 @@ function nextPledgeAdminMonth() {
   const d = new Date(y, m, 1);
   _pledgeAdminMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   loadPledgeAdmin();
+}
+
+// ── 売上予測 ──────────────────────────────────────────
+
+async function showForecast() {
+  setView('forecast');
+  render();
+  await loadForecast();
+}
+
+let forecastChart = null;
+
+async function loadForecast() {
+  document.getElementById("forecast-message").innerHTML =
+    `<div style="background:#e3f2fd;padding:10px 14px;border-radius:6px;">読み込み中...</div>`;
+  try {
+    const res = await fetch("/api/forecast", { headers: { 'user-id': _currentUser?.id || '' } });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.detail || "エラー");
+    renderForecast(data);
+    document.getElementById("forecast-message").innerHTML = "";
+  } catch(e) {
+    document.getElementById("forecast-message").innerHTML =
+      `<div style="background:#ffebee;padding:10px 14px;border-radius:6px;">❌ ${e.message}</div>`;
+  }
+}
+
+function renderForecast(data) {
+  const p1 = data.period1.data;
+  const p2 = data.period2.data;
+
+  const p1Kanmon = p1.reduce((s,m) => s + m.subtotal, 0);
+  const p1Kessan = p1.reduce((s,m) => s + m.kessan, 0);
+  const p1Total  = p1.reduce((s,m) => s + m.total, 0);
+  document.getElementById("forecast-summary").innerHTML = `
+    <div style="background:#f1f5f9;border-radius:8px;padding:12px 16px;">
+      <div style="font-size:12px;color:#666;margin-bottom:4px;">今期合計（顧問料計）</div>
+      <div style="font-size:20px;font-weight:500;">¥${p1Kanmon.toLocaleString()}</div>
+    </div>
+    <div style="background:#f1f5f9;border-radius:8px;padding:12px 16px;">
+      <div style="font-size:12px;color:#666;margin-bottom:4px;">今期合計（決算報酬）</div>
+      <div style="font-size:20px;font-weight:500;">¥${p1Kessan.toLocaleString()}</div>
+    </div>
+    <div style="background:#f1f5f9;border-radius:8px;padding:12px 16px;">
+      <div style="font-size:12px;color:#666;margin-bottom:4px;">今期合計（税抜）</div>
+      <div style="font-size:20px;font-weight:500;">¥${p1Total.toLocaleString()}</div>
+    </div>`;
+
+  document.getElementById("forecast-legend").innerHTML = `
+    <span style="display:flex;align-items:center;gap:4px;">
+      <span style="width:10px;height:10px;border-radius:2px;background:#378ADD;display:inline-block;"></span>顧問料
+    </span>
+    <span style="display:flex;align-items:center;gap:4px;">
+      <span style="width:10px;height:10px;border-radius:2px;background:#1D9E75;display:inline-block;"></span>決算報酬
+    </span>
+    <span style="font-size:11px;color:#999;">（薄色＝翌期）</span>`;
+
+  document.getElementById("forecast-period-badges").innerHTML = `
+    <span style="background:#dbeafe;color:#1e40af;font-size:11px;padding:2px 8px;border-radius:6px;font-weight:500;">${data.period1.label}</span>
+    <span style="color:#999;font-size:12px;">+</span>
+    <span style="background:#f1f5f9;color:#666;font-size:11px;padding:2px 8px;border-radius:6px;font-weight:500;">${data.period2.label}</span>`;
+
+  const allData = [...p1, ...p2];
+  const labels = allData.map(m => `${parseInt(m.month.slice(4))}月`);
+
+  if (forecastChart) forecastChart.destroy();
+  forecastChart = new Chart(document.getElementById("forecastChart"), {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "顧問料",
+          data: allData.map(m => m.subtotal),
+          backgroundColor: (ctx) => ctx.dataIndex < 12 ? "#378ADD" : "rgba(55,138,221,0.35)",
+          stack: "stack"
+        },
+        {
+          label: "決算報酬",
+          data: allData.map(m => m.kessan),
+          backgroundColor: (ctx) => ctx.dataIndex < 12 ? "#1D9E75" : "rgba(29,158,117,0.35)",
+          stack: "stack"
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (items) => {
+              const idx = items[0].dataIndex;
+              return `${labels[idx]}（${idx < 12 ? data.period1.label : data.period2.label}）`;
+            },
+            label: (item) => `${item.dataset.label}: ¥${item.raw.toLocaleString()}`
+          }
+        }
+      },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { font: { size: 10 }, autoSkip: false, maxRotation: 0 } },
+        y: { stacked: true, grid: { color: "rgba(128,128,128,0.15)" }, ticks: { font: { size: 11 }, callback: (v) => "¥" + v.toLocaleString() } }
+      }
+    }
+  });
+
+  const rows = [
+    { label: "顧問料収入",          key: null,       kind: "header" },
+    { label: "　顧問料",             key: "kanmon",   kind: "data" },
+    { label: "　記帳代行",           key: "kiccho",   kind: "data" },
+    { label: "　レンタル料",         key: "rental",   kind: "data" },
+    { label: "　給与計算",           key: "kyuyo",    kind: "data" },
+    { label: "　その他",             key: "sonota",   kind: "data" },
+    { label: "顧問料小計",           key: "subtotal", kind: "total" },
+    { label: "決算報酬収入",         key: null,       kind: "header" },
+    { label: "　決算報酬（税抜）",   key: "kessan",   kind: "data" },
+    { label: "合計（税抜）",         key: "total",    kind: "grand" },
+  ];
+
+  const bgMap = { header:"#f8f9fa", total:"#f1f5f9", grand:"#dbeafe", data:"#fff" };
+
+  let html = `<table style="border-collapse:collapse;font-size:12px;white-space:nowrap;min-width:100%;">
+    <thead><tr style="background:#f0f4ff;">
+      <th style="border:0.5px solid #ddd;padding:7px 10px;text-align:left;min-width:130px;position:sticky;left:0;z-index:3;background:#f0f4ff;">項目</th>`;
+  p1.forEach(m => {
+    html += `<th style="border:0.5px solid #ddd;padding:7px 10px;text-align:right;">${parseInt(m.month.slice(4))}月</th>`;
+  });
+  html += `<th style="border:0.5px solid #ddd;padding:7px 10px;text-align:right;border-left:1px solid #bbb;background:#e8f0fe;font-weight:500;">合計</th>`;
+  p2.forEach(m => {
+    html += `<th style="border:0.5px solid #ddd;padding:7px 10px;text-align:right;">${parseInt(m.month.slice(4))}月</th>`;
+  });
+  html += `<th style="border:0.5px solid #ddd;padding:7px 10px;text-align:right;border-left:1px solid #bbb;background:#e8f0fe;font-weight:500;">合計</th>`;
+  html += `</tr></thead><tbody>`;
+
+  rows.forEach(row => {
+    const bg = bgMap[row.kind];
+    const fw = row.kind !== "data" ? "font-weight:500;" : "";
+    html += `<tr>`;
+    html += `<td style="border:0.5px solid #ddd;padding:6px 10px;background:${bg};${fw}position:sticky;left:0;z-index:1;">${row.label}</td>`;
+    let s1 = 0, s2 = 0;
+    p1.forEach(m => {
+      const val = row.key ? m[row.key] : null;
+      if (val !== null) s1 += val;
+      html += `<td style="border:0.5px solid #ddd;padding:5px 10px;text-align:right;background:${bg};${fw}">${val !== null ? "¥"+val.toLocaleString() : ""}</td>`;
+    });
+    html += `<td style="border:0.5px solid #ddd;padding:5px 10px;text-align:right;border-left:1px solid #bbb;background:#e8f0fe;font-weight:500;">${row.key ? "¥"+s1.toLocaleString() : ""}</td>`;
+    p2.forEach(m => {
+      const val = row.key ? m[row.key] : null;
+      if (val !== null) s2 += val;
+      html += `<td style="border:0.5px solid #ddd;padding:5px 10px;text-align:right;background:${bg};${fw}">${val !== null ? "¥"+val.toLocaleString() : ""}</td>`;
+    });
+    html += `<td style="border:0.5px solid #ddd;padding:5px 10px;text-align:right;border-left:1px solid #bbb;background:#e8f0fe;font-weight:500;">${row.key ? "¥"+s2.toLocaleString() : ""}</td>`;
+    html += `</tr>`;
+  });
+
+  html += `</tbody></table>`;
+  document.getElementById("forecast-table-container").innerHTML = html;
+}
+
+async function downloadForecastExcel() {
+  window.location.href = "/api/forecast/excel";
 }
 
 // オーバーレイ外クリックで閉じる

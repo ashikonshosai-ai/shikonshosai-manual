@@ -1489,6 +1489,288 @@ async def _sync_freee_partner(user: dict):
         pass
 
 
+@app.get("/api/forecast")
+async def get_forecast(user=Depends(require_login)):
+    if user["role"] not in ["admin", "leader", "soumu"]:
+        raise HTTPException(status_code=403)
+    try:
+        ss = _get_spreadsheet()
+        master_ws = ss.worksheet("マスタ")
+        master_rows = master_ws.get_all_values()
+
+        from datetime import date
+        today = date.today()
+        if today.month >= 8:
+            fiscal_start_year = today.year
+        else:
+            fiscal_start_year = today.year - 1
+
+        def get_fiscal_months(start_year):
+            months = []
+            for i in range(12):
+                m = 8 + i
+                y = start_year
+                if m > 12:
+                    m -= 12
+                    y += 1
+                months.append(f"{y}{str(m).zfill(2)}")
+            return months
+
+        period1 = get_fiscal_months(fiscal_start_year)
+        period2 = get_fiscal_months(fiscal_start_year + 1)
+        all_months = period1 + period2
+
+        monthly_kanmon = {m: {"kanmon":0,"kiccho":0,"rental":0,"kyuyo":0,"sonota":0} for m in all_months}
+        monthly_kessan = {m: 0 for m in all_months}
+
+        for row in master_rows[2:]:
+            if not any(row):
+                continue
+            mgmt_no = row[0] if len(row) > 0 else ""
+            if not mgmt_no or len(mgmt_no) < 3:
+                continue
+
+            def to_int(val):
+                try:
+                    return int(str(val).replace(",", "").replace(" ", "")) if val else 0
+                except:
+                    return 0
+
+            kanmon     = to_int(row[6]  if len(row) > 6  else 0)
+            kiccho     = to_int(row[7]  if len(row) > 7  else 0)
+            rental     = sum(to_int(row[i] if len(row) > i else 0) for i in range(8, 15))
+            kyuyo      = to_int(row[15] if len(row) > 15 else 0)
+            sonota     = to_int(row[16] if len(row) > 16 else 0)
+            kessan_tax = to_int(row[18] if len(row) > 18 else 0)
+
+            for m in all_months:
+                monthly_kanmon[m]["kanmon"] += kanmon
+                monthly_kanmon[m]["kiccho"] += kiccho
+                monthly_kanmon[m]["rental"] += rental
+                monthly_kanmon[m]["kyuyo"]  += kyuyo
+                monthly_kanmon[m]["sonota"] += sonota
+
+            if kessan_tax > 0:
+                try:
+                    km = int(mgmt_no[:3])
+                    if 1 <= km <= 12:
+                        bm = km + 2
+                        byo = 0
+                        if bm > 12:
+                            bm -= 12
+                            byo = 1
+                        for base_year in [fiscal_start_year, fiscal_start_year + 1]:
+                            by = (base_year + 1 if km < 8 else base_year) + byo
+                            bym = f"{by}{str(bm).zfill(2)}"
+                            if bym in monthly_kessan:
+                                monthly_kessan[bym] += kessan_tax
+                except:
+                    pass
+
+        def build_period_data(months):
+            result = []
+            for m in months:
+                k = monthly_kanmon.get(m, {})
+                subtotal = sum(k.get(x, 0) for x in ["kanmon","kiccho","rental","kyuyo","sonota"])
+                kessan   = monthly_kessan.get(m, 0)
+                result.append({
+                    "month":    m,
+                    "kanmon":   k.get("kanmon", 0),
+                    "kiccho":   k.get("kiccho", 0),
+                    "rental":   k.get("rental", 0),
+                    "kyuyo":    k.get("kyuyo",  0),
+                    "sonota":   k.get("sonota", 0),
+                    "subtotal": subtotal,
+                    "kessan":   kessan,
+                    "total":    subtotal + kessan
+                })
+            return result
+
+        return {
+            "ok": True,
+            "period1": {
+                "label": f"{fiscal_start_year}年8月〜{fiscal_start_year+1}年7月",
+                "data":  build_period_data(period1)
+            },
+            "period2": {
+                "label": f"{fiscal_start_year+1}年8月〜{fiscal_start_year+2}年7月",
+                "data":  build_period_data(period2)
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/forecast/excel")
+async def forecast_excel(user=Depends(require_login)):
+    if user["role"] not in ["admin", "leader", "soumu"]:
+        raise HTTPException(status_code=403)
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from io import BytesIO
+        from datetime import date
+
+        today = date.today()
+        fiscal_start_year = today.year if today.month >= 8 else today.year - 1
+
+        def get_fiscal_months(start_year):
+            months = []
+            for i in range(12):
+                m = 8 + i
+                y = start_year
+                if m > 12:
+                    m -= 12
+                    y += 1
+                months.append((y, m, f"{y}{str(m).zfill(2)}"))
+            return months
+
+        period1 = get_fiscal_months(fiscal_start_year)
+        period2 = get_fiscal_months(fiscal_start_year + 1)
+        all_yms = [x[2] for x in period1 + period2]
+
+        ss = _get_spreadsheet()
+        master_ws = ss.worksheet("マスタ")
+        master_rows = master_ws.get_all_values()
+
+        monthly_kanmon = {m: {"kanmon":0,"kiccho":0,"rental":0,"kyuyo":0,"sonota":0} for m in all_yms}
+        monthly_kessan = {m: 0 for m in all_yms}
+
+        for row in master_rows[2:]:
+            if not any(row): continue
+            mgmt_no = row[0] if len(row) > 0 else ""
+            if not mgmt_no or len(mgmt_no) < 3: continue
+            def ti(v):
+                try: return int(str(v).replace(",","").replace(" ","")) if v else 0
+                except: return 0
+            kanmon = ti(row[6] if len(row)>6 else 0)
+            kiccho = ti(row[7] if len(row)>7 else 0)
+            rental = sum(ti(row[i] if len(row)>i else 0) for i in range(8,15))
+            kyuyo  = ti(row[15] if len(row)>15 else 0)
+            sonota = ti(row[16] if len(row)>16 else 0)
+            kessan_tax = ti(row[18] if len(row)>18 else 0)
+            for m in all_yms:
+                monthly_kanmon[m]["kanmon"] += kanmon
+                monthly_kanmon[m]["kiccho"] += kiccho
+                monthly_kanmon[m]["rental"] += rental
+                monthly_kanmon[m]["kyuyo"]  += kyuyo
+                monthly_kanmon[m]["sonota"] += sonota
+            if kessan_tax > 0:
+                try:
+                    km = int(mgmt_no[:3])
+                    if 1 <= km <= 12:
+                        bm = km + 2
+                        byo = 0
+                        if bm > 12:
+                            bm -= 12
+                            byo = 1
+                        for base_year in [fiscal_start_year, fiscal_start_year+1]:
+                            by = (base_year+1 if km < 8 else base_year) + byo
+                            bym = f"{by}{str(bm).zfill(2)}"
+                            if bym in monthly_kessan:
+                                monthly_kessan[bym] += kessan_tax
+                except: pass
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "売上予測"
+
+        h_fill = PatternFill("solid", fgColor="DBEAFE")
+        t_fill = PatternFill("solid", fgColor="F1F5F9")
+        g_fill = PatternFill("solid", fgColor="DBEAFE")
+        s_fill = PatternFill("solid", fgColor="F8F9FA")
+        sum_fill = PatternFill("solid", fgColor="E8F0FE")
+        bold = Font(bold=True)
+        right = Alignment(horizontal="right")
+        center = Alignment(horizontal="center")
+
+        ws.cell(1,1).value = "項目"
+        ws.cell(1,1).font = bold
+        ws.cell(1,1).fill = h_fill
+        for i,(y,m,_) in enumerate(period1):
+            c = ws.cell(1, 2+i)
+            c.value = f"{y}年{m}月"; c.font = bold; c.fill = h_fill; c.alignment = center
+        ws.cell(1,14).value = f"{fiscal_start_year}年8月〜{fiscal_start_year+1}年7月 合計"
+        ws.cell(1,14).font = bold; ws.cell(1,14).fill = sum_fill; ws.cell(1,14).alignment = center
+        for i,(y,m,_) in enumerate(period2):
+            c = ws.cell(1, 15+i)
+            c.value = f"{y}年{m}月"; c.font = bold; c.fill = h_fill; c.alignment = center
+        ws.cell(1,27).value = f"{fiscal_start_year+1}年8月〜{fiscal_start_year+2}年7月 合計"
+        ws.cell(1,27).font = bold; ws.cell(1,27).fill = sum_fill; ws.cell(1,27).alignment = center
+
+        items = [
+            ("顧問料収入",         None,        "header"),
+            ("　顧問料",            "kanmon",    "data"),
+            ("　記帳代行",          "kiccho",    "data"),
+            ("　レンタル料",        "rental",    "data"),
+            ("　給与計算",          "kyuyo",     "data"),
+            ("　その他",            "sonota",    "data"),
+            ("顧問料小計",          "subtotal",  "total"),
+            ("決算報酬収入",        None,        "header"),
+            ("　決算報酬（税抜）",  "kessan",    "data"),
+            ("合計（税抜）",        "total",     "grand"),
+        ]
+
+        for ri,(label,key,kind) in enumerate(items):
+            rn = ri + 2
+            fill = s_fill if kind=="header" else (t_fill if kind=="total" else (g_fill if kind=="grand" else None))
+            fnt  = bold if kind in ("header","total","grand") else None
+            c = ws.cell(rn,1); c.value = label
+            if fill: c.fill = fill
+            if fnt:  c.font = fnt
+
+            s1 = s2 = 0
+            for i,(_,_,ym) in enumerate(period1):
+                k = monthly_kanmon.get(ym,{})
+                sub = sum(k.get(x,0) for x in ["kanmon","kiccho","rental","kyuyo","sonota"])
+                vm = {"kanmon":k.get("kanmon",0),"kiccho":k.get("kiccho",0),"rental":k.get("rental",0),
+                      "kyuyo":k.get("kyuyo",0),"sonota":k.get("sonota",0),"subtotal":sub,
+                      "kessan":monthly_kessan.get(ym,0),"total":sub+monthly_kessan.get(ym,0)}
+                val = vm.get(key,"") if key else ""
+                cell = ws.cell(rn,2+i); cell.value = val if val!="" else None
+                cell.alignment = right
+                if fill: cell.fill = fill
+                if fnt:  cell.font = fnt
+                if val != "": s1 += val
+            ws.cell(rn,14).value = s1 if key else ""
+            ws.cell(rn,14).alignment = right; ws.cell(rn,14).font = bold; ws.cell(rn,14).fill = sum_fill
+
+            for i,(_,_,ym) in enumerate(period2):
+                k = monthly_kanmon.get(ym,{})
+                sub = sum(k.get(x,0) for x in ["kanmon","kiccho","rental","kyuyo","sonota"])
+                vm = {"kanmon":k.get("kanmon",0),"kiccho":k.get("kiccho",0),"rental":k.get("rental",0),
+                      "kyuyo":k.get("kyuyo",0),"sonota":k.get("sonota",0),"subtotal":sub,
+                      "kessan":monthly_kessan.get(ym,0),"total":sub+monthly_kessan.get(ym,0)}
+                val = vm.get(key,"") if key else ""
+                cell = ws.cell(rn,15+i); cell.value = val if val!="" else None
+                cell.alignment = right
+                if fill: cell.fill = fill
+                if fnt:  cell.font = fnt
+                if val != "": s2 += val
+            ws.cell(rn,27).value = s2 if key else ""
+            ws.cell(rn,27).alignment = right; ws.cell(rn,27).font = bold; ws.cell(rn,27).fill = sum_fill
+
+        ws.column_dimensions["A"].width = 20
+        for col in range(2, 28):
+            ws.column_dimensions[ws.cell(1,col).column_letter].width = 14
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        from fastapi.responses import StreamingResponse
+        filename = f"売上予測_{fiscal_start_year}-{fiscal_start_year+2}.xlsx"
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"}
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/")
 async def root(response: Response):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
