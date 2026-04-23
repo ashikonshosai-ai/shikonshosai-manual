@@ -3704,8 +3704,8 @@ function renderForecast(data) {
     { label: "　その他",             key: "sonota",   kind: "data" },
     { label: "顧問料小計",           key: "subtotal", kind: "total" },
     { label: "決算報酬収入",         key: null,       kind: "header" },
-    { label: "　決算報酬（税抜）",   key: "kessan",   kind: "data" },
-    { label: "合計（税抜）",         key: "total",    kind: "grand" },
+    { label: "　決算報酬（税込）",   key: "kessan",   kind: "data" },
+    { label: "合計（税込）",         key: "total",    kind: "grand" },
   ];
 
   const bgMap = { header:"#f8f9fa", total:"#f1f5f9", grand:"#dbeafe", data:"#fff" };
@@ -3717,10 +3717,12 @@ function renderForecast(data) {
     html += `<th style="border:0.5px solid #ddd;padding:7px 10px;text-align:right;">${parseInt(m.month.slice(4))}月</th>`;
   });
   html += `<th style="border:0.5px solid #ddd;padding:7px 10px;text-align:right;border-left:1px solid #bbb;background:#e8f0fe;font-weight:500;">合計</th>`;
-  p2.forEach(m => {
-    html += `<th style="border:0.5px solid #ddd;padding:7px 10px;text-align:right;">${parseInt(m.month.slice(4))}月</th>`;
-  });
-  html += `<th style="border:0.5px solid #ddd;padding:7px 10px;text-align:right;border-left:1px solid #bbb;background:#e8f0fe;font-weight:500;">合計</th>`;
+  if (p2.length > 0) {
+    p2.forEach(m => {
+      html += `<th style="border:0.5px solid #ddd;padding:7px 10px;text-align:right;">${parseInt(m.month.slice(4))}月</th>`;
+    });
+    html += `<th style="border:0.5px solid #ddd;padding:7px 10px;text-align:right;border-left:1px solid #bbb;background:#e8f0fe;font-weight:500;">合計</th>`;
+  }
   html += `</tr></thead><tbody>`;
 
   rows.forEach(row => {
@@ -3735,12 +3737,14 @@ function renderForecast(data) {
       html += `<td style="border:0.5px solid #ddd;padding:5px 10px;text-align:right;background:${bg};${fw}">${val !== null ? "¥"+val.toLocaleString() : ""}</td>`;
     });
     html += `<td style="border:0.5px solid #ddd;padding:5px 10px;text-align:right;border-left:1px solid #bbb;background:#e8f0fe;font-weight:500;">${row.key ? "¥"+s1.toLocaleString() : ""}</td>`;
-    p2.forEach(m => {
-      const val = row.key ? m[row.key] : null;
-      if (val !== null) s2 += val;
-      html += `<td style="border:0.5px solid #ddd;padding:5px 10px;text-align:right;background:${bg};${fw}">${val !== null ? "¥"+val.toLocaleString() : ""}</td>`;
-    });
-    html += `<td style="border:0.5px solid #ddd;padding:5px 10px;text-align:right;border-left:1px solid #bbb;background:#e8f0fe;font-weight:500;">${row.key ? "¥"+s2.toLocaleString() : ""}</td>`;
+    if (p2.length > 0) {
+      p2.forEach(m => {
+        const val = row.key ? m[row.key] : null;
+        if (val !== null) s2 += val;
+        html += `<td style="border:0.5px solid #ddd;padding:5px 10px;text-align:right;background:${bg};${fw}">${val !== null ? "¥"+val.toLocaleString() : ""}</td>`;
+      });
+      html += `<td style="border:0.5px solid #ddd;padding:5px 10px;text-align:right;border-left:1px solid #bbb;background:#e8f0fe;font-weight:500;">${row.key ? "¥"+s2.toLocaleString() : ""}</td>`;
+    }
     html += `</tr>`;
   });
 

@@ -1556,7 +1556,7 @@ async def get_forecast(user_id: str = Header(None)):
             rental     = sum(to_int(row[i] if len(row) > i else 0) for i in range(5, 12))  # F〜L列：レンタル料
             kyuyo      = to_int(row[12] if len(row) > 12 else 0)   # M列：給与計算
             sonota     = to_int(row[13] if len(row) > 13 else 0)   # N列：その他
-            kessan_tax = to_int(row[17] if len(row) > 17 else 0)   # R列：決算報酬（税抜）
+            kessan_tax = to_int(row[18] if len(row) > 18 else 0)   # S列：決算報酬（税込）
 
             for m in all_months:
                 monthly_kanmon[m]["kanmon"] += kanmon
@@ -1683,7 +1683,7 @@ async def forecast_excel(user_id: str = Header(None)):
             rental = sum(ti(row[i] if len(row)>i else 0) for i in range(5,12))  # F〜L列：レンタル料
             kyuyo  = ti(row[12] if len(row)>12 else 0)  # M列：給与計算
             sonota = ti(row[13] if len(row)>13 else 0)  # N列：その他
-            kessan_tax = ti(row[17] if len(row)>17 else 0)  # R列：決算報酬（税抜）
+            kessan_tax = ti(row[18] if len(row)>18 else 0)  # S列：決算報酬（税込）
             for m in all_yms:
                 monthly_kanmon[m]["kanmon"] += kanmon
                 monthly_kanmon[m]["kiccho"] += kiccho
