@@ -2940,14 +2940,19 @@ let _reportApproved = false;
 
 async function loadReport() {
   const userId = _reportViewUserId || _currentUser?.id;
+  _reportApproved = false;
   const [r, invR] = await Promise.all([
     fetch(`/api/reports/${userId}/${_currentReportMonth}`),
     fetch(`/api/invoices/my/${userId}/${_currentReportMonth}`)
   ]);
   _reportData = await r.json();
   if (!_reportData.entries) _reportData.entries = [];
-  const invData = invR.ok ? await invR.json() : {};
-  _reportApproved = invData?.status === 'approved';
+  try {
+    const invData = invR.ok ? await invR.json() : null;
+    _reportApproved = invData != null && invData.status === 'approved';
+  } catch(e) {
+    _reportApproved = false;
+  }
   renderReport();
   if (_reportTab === 'summary') renderSummaryTab();
   if (_reportTab === 'group') renderGroupTab();
