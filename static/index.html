@@ -774,10 +774,7 @@
         </div>
         <!-- 明細タブ内容 -->
         <div id="report-tab-entries">
-        <div id="report-approved-warning" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px 14px;margin-bottom:12px;">
-          ⚠️ この月の請求書は承認済みのため、日報の追加・編集・削除はできません。
-        </div>
-        <div id="report-add-form" style="border:1px solid #93c5fd; border-radius:8px; padding:10px; margin-bottom:12px; background:#f0f7ff;">
+<div id="report-add-form" style="border:1px solid #93c5fd; border-radius:8px; padding:10px; margin-bottom:12px; background:#f0f7ff;">
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; align-items:center;">
             <input type="date" id="input-date" style="padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" />
             <input type="time" id="input-start" style="width:90px; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" oninput="calcHours()" />
@@ -2936,27 +2933,14 @@ async function showReport() {
   await loadReport();
 }
 
-let _reportApproved = false;
-
 async function loadReport() {
   const userId = _reportViewUserId || _currentUser?.id;
-  _reportApproved = false;
   try {
-    const [r, invR] = await Promise.all([
-      fetch(`/api/reports/${userId}/${_currentReportMonth}`),
-      fetch(`/api/invoices/my/${userId}/${_currentReportMonth}`)
-    ]);
+    const r = await fetch(`/api/reports/${userId}/${_currentReportMonth}`);
     _reportData = await r.json();
     if (!_reportData.entries) _reportData.entries = [];
-    try {
-      const invData = invR.ok ? await invR.json() : null;
-      _reportApproved = invData != null && invData.status === 'approved';
-    } catch(e) {
-      _reportApproved = false;
-    }
   } catch(e) {
     if (!_reportData) { _reportData = { entries: [] }; }
-    _reportApproved = false;
   }
   renderReport();
   if (_reportTab === 'summary') renderSummaryTab();
@@ -3033,20 +3017,6 @@ function renderReport() {
     tbody.appendChild(tr);
   });
 
-  const addForm = document.getElementById('report-add-form');
-  const addBtn  = document.getElementById('report-add-btn');
-  const warning = document.getElementById('report-approved-warning');
-  if (_reportApproved) {
-    if (addForm)  addForm.style.display  = 'none';
-    if (addBtn)   addBtn.style.display   = 'none';
-    if (warning)  warning.style.display  = 'block';
-    document.querySelectorAll('.report-delete-btn').forEach(btn => btn.style.display = 'none');
-  } else {
-    if (addForm)  addForm.style.display  = '';
-    if (addBtn)   addBtn.style.display   = '';
-    if (warning)  warning.style.display  = 'none';
-    document.querySelectorAll('.report-delete-btn').forEach(btn => btn.style.display = '');
-  }
 }
 
 let _savingEntry = false;
