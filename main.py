@@ -313,6 +313,15 @@ async def get_report(user_id: str, year_month: str):
 
 @app.post("/api/reports/{user_id}/{year_month}")
 async def save_report(user_id: str, year_month: str, request: Request):
+    invoices_data = await dropbox_get(get_invoices_path(year_month)) or {"invoices": []}
+    approved = any(
+        inv for inv in invoices_data.get("invoices", [])
+        if inv.get("user_id") == user_id
+        and inv.get("year_month") == year_month
+        and inv.get("status") == "approved"
+    )
+    if approved:
+        raise HTTPException(status_code=403, detail="承認済みの請求書があるため日報を変更できません")
     data = await request.json()
     path = f"{REPORTS_BASE}/{user_id}_{year_month}.json"
     await dropbox_save(path, data)

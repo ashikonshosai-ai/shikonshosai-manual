@@ -731,7 +731,7 @@
             <button class="btn btn-gray" style="padding:4px 10px;" onclick="nextReportMonth()">▶</button>
           </div>
           <button id="btn-excel-download" style="display:none; padding:6px 14px; border:1px solid #e2e8f0; border-radius:6px; background:#f0fdf4; font-size:13px; cursor:pointer;" onclick="downloadGroupExcel()">📥 Excel</button>
-          <button class="btn btn-blue" onclick="document.getElementById('input-date').focus()">＋ 追加</button>
+          <button id="report-add-btn" class="btn btn-blue" onclick="document.getElementById('input-date').focus()">＋ 追加</button>
         </div>
         <div id="report-summary" style="display:flex; gap:16px; padding:10px 14px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:12px; font-size:13px; flex-wrap:wrap;"></div>
         <!-- タブ -->
@@ -742,7 +742,10 @@
         </div>
         <!-- 明細タブ内容 -->
         <div id="report-tab-entries">
-        <div style="border:1px solid #93c5fd; border-radius:8px; padding:10px; margin-bottom:12px; background:#f0f7ff;">
+        <div id="report-approved-warning" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px 14px;margin-bottom:12px;">
+          ⚠️ この月の請求書は承認済みのため、日報の追加・編集・削除はできません。
+        </div>
+        <div id="report-add-form" style="border:1px solid #93c5fd; border-radius:8px; padding:10px; margin-bottom:12px; background:#f0f7ff;">
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; align-items:center;">
             <input type="date" id="input-date" style="padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" />
             <input type="time" id="input-start" style="width:90px; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; height:32px;" oninput="calcHours()" />
@@ -2805,11 +2808,18 @@ async function showReport() {
   await loadReport();
 }
 
+let _reportApproved = false;
+
 async function loadReport() {
   const userId = _reportViewUserId || _currentUser?.id;
-  const r = await fetch(`/api/reports/${userId}/${_currentReportMonth}`);
+  const [r, invR] = await Promise.all([
+    fetch(`/api/reports/${userId}/${_currentReportMonth}`),
+    fetch(`/api/invoices/my/${userId}/${_currentReportMonth}`)
+  ]);
   _reportData = await r.json();
   if (!_reportData.entries) _reportData.entries = [];
+  const invData = invR.ok ? await invR.json() : {};
+  _reportApproved = invData?.status === 'approved';
   renderReport();
   if (_reportTab === 'summary') renderSummaryTab();
   if (_reportTab === 'group') renderGroupTab();
@@ -2880,10 +2890,25 @@ function renderReport() {
       <td style="white-space:nowrap;">${esc(e.company_code || '')}</td>
       <td style="white-space:nowrap;">${esc(e.company_name || '')}</td>
       <td>${esc(e.content || '')}</td>
-      <td style="white-space:nowrap;"><button class="btn-sm" onclick="deleteReportEntry('${e.id}')">削除</button></td>`;
+      <td style="white-space:nowrap;"><button class="btn-sm report-delete-btn" onclick="deleteReportEntry('${e.id}')">削除</button></td>`;
     tr.addEventListener('click', (ev) => { if (!ev.target.closest('button')) editEntry(e.id); });
     tbody.appendChild(tr);
   });
+
+  const addForm = document.getElementById('report-add-form');
+  const addBtn  = document.getElementById('report-add-btn');
+  const warning = document.getElementById('report-approved-warning');
+  if (_reportApproved) {
+    if (addForm)  addForm.style.display  = 'none';
+    if (addBtn)   addBtn.style.display   = 'none';
+    if (warning)  warning.style.display  = 'block';
+    document.querySelectorAll('.report-delete-btn').forEach(btn => btn.style.display = 'none');
+  } else {
+    if (addForm)  addForm.style.display  = '';
+    if (addBtn)   addBtn.style.display   = '';
+    if (warning)  warning.style.display  = 'none';
+    document.querySelectorAll('.report-delete-btn').forEach(btn => btn.style.display = '');
+  }
 }
 
 let _savingEntry = false;
