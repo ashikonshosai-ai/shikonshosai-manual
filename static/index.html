@@ -446,13 +446,17 @@
           <div style="border-top:1px solid #e2e8f0; padding-top:14px; margin-top:2px;">
             <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:10px;">振込先</div>
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <div style="flex:1; min-width:140px;">
+              <div style="flex:1; min-width:140px; position:relative;">
                 <label style="font-size:12px; color:#64748b;">銀行名</label>
-                <input id="profile-bank-name" type="text" placeholder="〇〇銀行" style="width:100%; margin-top:4px; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; box-sizing:border-box;" />
+                <input id="profile-bank-name" type="text" placeholder="〇〇銀行" autocomplete="off" style="width:100%; margin-top:4px; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; box-sizing:border-box;" oninput="bankNameInput(this)" />
+                <input type="hidden" id="profile-bank-code" />
+                <div id="bank-name-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:200;max-height:200px;overflow-y:auto;"></div>
               </div>
-              <div style="flex:1; min-width:140px;">
+              <div style="flex:1; min-width:140px; position:relative;">
                 <label style="font-size:12px; color:#64748b;">支店名</label>
-                <input id="profile-bank-branch" type="text" placeholder="〇〇支店" style="width:100%; margin-top:4px; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; box-sizing:border-box;" />
+                <input id="profile-bank-branch" type="text" placeholder="〇〇支店" autocomplete="off" style="width:100%; margin-top:4px; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; box-sizing:border-box;" oninput="bankBranchInput(this)" />
+                <input type="hidden" id="profile-branch-code" />
+                <div id="bank-branch-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:200;max-height:200px;overflow-y:auto;"></div>
               </div>
             </div>
             <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
@@ -1708,6 +1712,73 @@ async function showProfile() {
   document.getElementById('profile-err').style.display = 'none';
 }
 
+let _bankSearchTimer = null;
+let _branchSearchTimer = null;
+
+function bankNameInput(el) {
+  const val = el.value.trim();
+  document.getElementById('profile-bank-code').value = '';
+  const dd = document.getElementById('bank-name-dropdown');
+  if (val.length < 2) { dd.style.display = 'none'; return; }
+  clearTimeout(_bankSearchTimer);
+  _bankSearchTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(`https://bank.teraren.com/banks/search.json?name=${encodeURIComponent(val)}`);
+      const banks = await res.json();
+      if (!banks.length) { dd.style.display = 'none'; return; }
+      dd.innerHTML = banks.slice(0, 10).map(b =>
+        `<div data-name="${esc(b.name)}" data-code="${esc(b.code)}" onclick="selectBank(this.dataset.name,this.dataset.code)" style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">${esc(b.name)}<span style="color:#94a3b8;font-size:11px;margin-left:6px;">${esc(b.code)}</span></div>`
+      ).join('');
+      dd.style.display = 'block';
+    } catch(e) { dd.style.display = 'none'; }
+  }, 300);
+}
+
+function selectBank(name, code) {
+  document.getElementById('profile-bank-name').value = name;
+  document.getElementById('profile-bank-code').value = code;
+  document.getElementById('bank-name-dropdown').style.display = 'none';
+  document.getElementById('profile-bank-branch').value = '';
+  document.getElementById('profile-branch-code').value = '';
+}
+
+function bankBranchInput(el) {
+  const val = el.value.trim();
+  const bankCode = document.getElementById('profile-bank-code').value;
+  document.getElementById('profile-branch-code').value = '';
+  const dd = document.getElementById('bank-branch-dropdown');
+  if (!bankCode || val.length < 1) { dd.style.display = 'none'; return; }
+  clearTimeout(_branchSearchTimer);
+  _branchSearchTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(`https://bank.teraren.com/banks/${encodeURIComponent(bankCode)}/branches/search.json?name=${encodeURIComponent(val)}`);
+      const branches = await res.json();
+      if (!branches.length) { dd.style.display = 'none'; return; }
+      dd.innerHTML = branches.slice(0, 10).map(b =>
+        `<div data-name="${esc(b.name)}" data-code="${esc(b.code)}" onclick="selectBranch(this.dataset.name,this.dataset.code)" style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">${esc(b.name)}<span style="color:#94a3b8;font-size:11px;margin-left:6px;">${esc(b.code)}</span></div>`
+      ).join('');
+      dd.style.display = 'block';
+    } catch(e) { dd.style.display = 'none'; }
+  }, 300);
+}
+
+function selectBranch(name, code) {
+  document.getElementById('profile-bank-branch').value = name;
+  document.getElementById('profile-branch-code').value = code;
+  document.getElementById('bank-branch-dropdown').style.display = 'none';
+}
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#bank-name-dropdown') && e.target.id !== 'profile-bank-name') {
+    const dd = document.getElementById('bank-name-dropdown');
+    if (dd) dd.style.display = 'none';
+  }
+  if (!e.target.closest('#bank-branch-dropdown') && e.target.id !== 'profile-bank-branch') {
+    const dd = document.getElementById('bank-branch-dropdown');
+    if (dd) dd.style.display = 'none';
+  }
+});
+
 async function saveProfile() {
   const errEl = document.getElementById('profile-err');
   errEl.style.display = 'none';
@@ -1725,7 +1796,9 @@ async function saveProfile() {
     postal_code: document.getElementById('profile-postal').value.trim(),
     address: document.getElementById('profile-address').value.trim(),
     bank_name: document.getElementById('profile-bank-name').value.trim(),
+    bank_code: document.getElementById('profile-bank-code').value.trim(),
     bank_branch: document.getElementById('profile-bank-branch').value.trim(),
+    branch_code: document.getElementById('profile-branch-code').value.trim(),
     bank_type: document.getElementById('profile-bank-type').value,
     bank_number: document.getElementById('profile-bank-number').value.trim(),
     bank_holder: document.getElementById('profile-bank-holder').value.trim(),
