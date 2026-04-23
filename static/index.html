@@ -447,13 +447,13 @@
             <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:10px;">振込先</div>
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
               <div style="flex:1; min-width:140px; position:relative;">
-                <label style="font-size:12px; color:#64748b;">銀行名</label>
+                <label style="font-size:12px; color:#64748b;">銀行名<span id="profile-bank-code-display" style="color:gray;font-size:0.85em;margin-left:4px;"></span></label>
                 <input id="profile-bank-name" type="text" placeholder="〇〇銀行" autocomplete="off" style="width:100%; margin-top:4px; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; box-sizing:border-box;" oninput="bankNameInput(this)" />
                 <input type="hidden" id="profile-bank-code" />
                 <div id="bank-name-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:200;max-height:200px;overflow-y:auto;"></div>
               </div>
               <div style="flex:1; min-width:140px; position:relative;">
-                <label style="font-size:12px; color:#64748b;">支店名</label>
+                <label style="font-size:12px; color:#64748b;">支店名<span id="profile-branch-code-display" style="color:gray;font-size:0.85em;margin-left:4px;"></span></label>
                 <input id="profile-bank-branch" type="text" placeholder="〇〇支店" autocomplete="off" style="width:100%; margin-top:4px; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; box-sizing:border-box;" oninput="bankBranchInput(this)" />
                 <input type="hidden" id="profile-branch-code" />
                 <div id="bank-branch-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:200;max-height:200px;overflow-y:auto;"></div>
@@ -1702,8 +1702,10 @@ async function showProfile() {
   document.getElementById('profile-address').value = user.address || '';
   document.getElementById('profile-bank-name').value = user.bank_name || '';
   document.getElementById('profile-bank-code').value = user.bank_code || '';
+  document.getElementById('profile-bank-code-display').textContent = user.bank_code || '';
   document.getElementById('profile-bank-branch').value = user.bank_branch || '';
   document.getElementById('profile-branch-code').value = user.branch_code || '';
+  document.getElementById('profile-branch-code-display').textContent = user.branch_code || '';
   document.getElementById('profile-bank-type').value = user.bank_type || '普通';
   document.getElementById('profile-bank-number').value = user.bank_number || '';
   document.getElementById('profile-bank-holder').value = user.bank_holder || '';
@@ -1737,11 +1739,13 @@ function bankNameInput(el) {
 }
 
 function selectBank(name, code) {
-  document.getElementById('profile-bank-name').value = name + code;
+  document.getElementById('profile-bank-name').value = name;
   document.getElementById('profile-bank-code').value = code;
+  document.getElementById('profile-bank-code-display').textContent = code;
   document.getElementById('bank-name-dropdown').style.display = 'none';
   document.getElementById('profile-bank-branch').value = '';
   document.getElementById('profile-branch-code').value = '';
+  document.getElementById('profile-branch-code-display').textContent = '';
 }
 
 function bankBranchInput(el) {
@@ -1765,8 +1769,9 @@ function bankBranchInput(el) {
 }
 
 function selectBranch(name, code) {
-  document.getElementById('profile-bank-branch').value = name + code;
+  document.getElementById('profile-bank-branch').value = name;
   document.getElementById('profile-branch-code').value = code;
+  document.getElementById('profile-branch-code-display').textContent = code;
   document.getElementById('bank-branch-dropdown').style.display = 'none';
 }
 
