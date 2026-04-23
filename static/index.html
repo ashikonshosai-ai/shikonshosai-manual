@@ -1737,7 +1737,7 @@ function bankNameInput(el) {
 }
 
 function selectBank(name, code) {
-  document.getElementById('profile-bank-name').value = name;
+  document.getElementById('profile-bank-name').value = name + code;
   document.getElementById('profile-bank-code').value = code;
   document.getElementById('bank-name-dropdown').style.display = 'none';
   document.getElementById('profile-bank-branch').value = '';
@@ -1765,7 +1765,7 @@ function bankBranchInput(el) {
 }
 
 function selectBranch(name, code) {
-  document.getElementById('profile-bank-branch').value = name;
+  document.getElementById('profile-bank-branch').value = name + code;
   document.getElementById('profile-branch-code').value = code;
   document.getElementById('bank-branch-dropdown').style.display = 'none';
 }
