@@ -352,7 +352,8 @@ async def update_profile(request: Request):
         raise HTTPException(status_code=401)
     allowed_fields = [
         "photo", "personal_email", "phone", "postal_code", "address",
-        "bank_name", "bank_branch", "bank_type", "bank_number",
+        "bank_name", "bank_code", "bank_branch", "branch_code",
+        "bank_type", "bank_number",
         "bank_holder", "invoice_number", "hourly_rate"
     ]
     users_data = await dropbox_get(USERS_PATH)
