@@ -358,14 +358,18 @@ async def update_profile(request: Request):
     users_data = await dropbox_get(USERS_PATH)
     if not users_data:
         raise HTTPException(status_code=500)
+    updated_user = None
     for user in users_data.get("users", []):
         if user.get("id") == user_id:
             for field in allowed_fields:
                 if field in body:
                     user[field] = body[field]
+            updated_user = user
             break
     await dropbox_save(USERS_PATH, users_data)
     _cache_delete("users")
+    if updated_user:
+        asyncio.create_task(_sync_freee_partner(updated_user))
     return {"ok": True}
 
 @app.get("/api/users")
@@ -1452,6 +1456,32 @@ async def get_companies():
         print(f"[companies] 取得失敗: {e}")
 
     return []
+
+
+# ===== freee取引先同期ヘルパー =====
+
+async def _sync_freee_partner(user: dict):
+    """ユーザーの振込先情報をfreee取引先に同期する（失敗しても無視）"""
+    if not SHIKONSHOSAI_APP_URL or not INTERNAL_SECRET:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                f"{SHIKONSHOSAI_APP_URL}/api/internal/sync_partner",
+                headers={"x-internal-secret": INTERNAL_SECRET},
+                json={
+                    "user_id": user.get("id") or user.get("email"),
+                    "name": user.get("name", ""),
+                    "invoice_number": user.get("invoice_number"),
+                    "bank_name": user.get("bank_name"),
+                    "bank_branch": user.get("bank_branch"),
+                    "bank_account_type": user.get("bank_account_type"),
+                    "bank_account_number": user.get("bank_account_number"),
+                    "bank_account_name": user.get("bank_account_name"),
+                },
+            )
+    except Exception:
+        pass
 
 
 @app.get("/")
