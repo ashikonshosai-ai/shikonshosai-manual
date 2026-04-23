@@ -6,7 +6,7 @@ import dropbox
 from dropbox.exceptions import ApiError as DropboxApiError
 import gspread
 from google.oauth2.service_account import Credentials
-from fastapi import FastAPI, Request, UploadFile, File, Form, Query, Header, HTTPException, Response, Depends
+from fastapi import FastAPI, Request, UploadFile, File, Form, Query, Header, HTTPException, Response
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -1490,8 +1490,14 @@ async def _sync_freee_partner(user: dict):
 
 
 @app.get("/api/forecast")
-async def get_forecast(user=Depends(require_login)):
-    if user["role"] not in ["admin", "leader", "soumu"]:
+async def get_forecast(user_id: str = Header(None)):
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+    if not current_user:
+        raise HTTPException(status_code=401)
+    if current_user.get("role") not in ["admin", "leader", "soumu"]:
         raise HTTPException(status_code=403)
     try:
         ss = _get_spreadsheet()
@@ -1603,8 +1609,14 @@ async def get_forecast(user=Depends(require_login)):
 
 
 @app.get("/api/forecast/excel")
-async def forecast_excel(user=Depends(require_login)):
-    if user["role"] not in ["admin", "leader", "soumu"]:
+async def forecast_excel(user_id: str = Header(None)):
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+    if not current_user:
+        raise HTTPException(status_code=401)
+    if current_user.get("role") not in ["admin", "leader", "soumu"]:
         raise HTTPException(status_code=403)
     try:
         import openpyxl
