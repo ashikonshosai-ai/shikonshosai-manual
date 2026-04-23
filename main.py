@@ -1574,8 +1574,10 @@ async def get_forecast(user_id: str = Header(None)):
                         if bm > 12:
                             bm -= 12
                             byo = 1
-                        by = (today.year + 1 if km < today.month else today.year) + byo
-                        bym = f"{by}{str(bm).zfill(2)}"
+                        bill_year = today.year + byo
+                        if km < today.month - 2:
+                            bill_year += 1
+                        bym = f"{bill_year}{str(bm).zfill(2)}"
                         if bym in monthly_kessan:
                             monthly_kessan[bym] += kessan_tax
                 except:
@@ -1697,8 +1699,10 @@ async def forecast_excel(user_id: str = Header(None)):
                         if bm > 12:
                             bm -= 12
                             byo = 1
-                        by = (today.year + 1 if km < today.month else today.year) + byo
-                        bym = f"{by}{str(bm).zfill(2)}"
+                        bill_year = today.year + byo
+                        if km < today.month - 2:
+                            bill_year += 1
+                        bym = f"{bill_year}{str(bm).zfill(2)}"
                         if bym in monthly_kessan:
                             monthly_kessan[bym] += kessan_tax
                 except: pass

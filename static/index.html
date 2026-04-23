@@ -958,7 +958,7 @@ function setView(mode) {
   const navForecast = document.getElementById('nav-forecast');
   if (navForecast) navForecast.classList.toggle('active', mode === 'forecast');
   const rightPane = document.getElementById('right-pane');
-  if (rightPane) rightPane.style.maxWidth = (mode === 'ar' || mode === 'forecast') ? '90vw' : '860px';
+  if (rightPane) rightPane.style.maxWidth = mode === 'ar' ? '90vw' : '860px';
 }
 
 function render() {
