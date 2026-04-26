@@ -1962,6 +1962,53 @@ async def import_karte_companies_csv(file: UploadFile = File(...)):
     _cache_delete("companies")
     return {"added": added, "updated": updated, "errors": errors}
 
+@app.post("/api/companies/assign_csv")
+async def assign_companies_csv(file: UploadFile = File(...)):
+    raw = await file.read()
+    text = None
+    for enc in ("cp932", "shift_jis", "utf-8-sig", "utf-8"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        raise HTTPException(status_code=400, detail="encoding error")
+    users_data = await dropbox_get(USERS_PATH) or {"users": []}
+    email_to_id = {(u.get("email") or "").strip(): u.get("id") for u in users_data.get("users", []) if u.get("email") and u.get("id")}
+    companies_data = await dropbox_get(COMPANIES_PATH) or {"companies": []}
+    code_to_company = {c.get("code"): c for c in companies_data.get("companies", []) if c.get("code")}
+    updated = 0
+    skipped = 0
+    errors = []
+    reader = csv.DictReader(io.StringIO(text))
+    now = _now_iso()
+    for i, row in enumerate(reader, start=2):
+        code = (row.get("code") or "").strip()
+        emails_str = (row.get("emails") or "").strip()
+        if not code or not emails_str:
+            skipped += 1
+            continue
+        company = code_to_company.get(code)
+        if not company:
+            errors.append(f"行{i}: 会社CD '{code}' が見つかりません")
+            skipped += 1
+            continue
+        emails = [e.strip() for e in emails_str.split(";") if e.strip()]
+        user_ids = []
+        for email in emails:
+            uid = email_to_id.get(email)
+            if uid:
+                user_ids.append(uid)
+            else:
+                errors.append(f"行{i}: メールアドレス '{email}' のユーザーが見つかりません")
+        company["assigned_users"] = user_ids
+        company["updated_at"] = now
+        updated += 1
+    await dropbox_save(COMPANIES_PATH, companies_data)
+    _cache_delete("companies")
+    return {"updated": updated, "skipped": skipped, "errors": errors}
+
 @app.post("/api/companies/clear_cache")
 async def clear_karte_companies_cache():
     _cache_delete("companies")
@@ -2147,6 +2194,7 @@ async def get_home_schedules(user_id: str = Query(...)):
     companies_data = await dropbox_get(COMPANIES_PATH) or {"companies": []}
     today = date.today()
     end = today + timedelta(days=14)
+    past_limit = today - timedelta(days=14)
     results = []
     for c in companies_data.get("companies", []):
         if user_id not in (c.get("assigned_users") or []):
@@ -2155,14 +2203,24 @@ async def get_home_schedules(user_id: str = Query(...)):
         cname = c.get("name", "")
         sched = await _load_schedule(cid)
         for ev in sched.get("single_events", []):
-            if ev.get("completed"):
-                continue
             d_str = ev.get("date", "")
             try:
                 d = date.fromisoformat(d_str)
             except (ValueError, TypeError):
                 continue
-            if today <= d <= end:
+            include = False
+            if not ev.get("completed"):
+                if today <= d <= end:
+                    include = True
+            else:
+                completed_at = ev.get("completed_at") or ""
+                try:
+                    cd = date.fromisoformat(completed_at[:10]) if completed_at else None
+                except ValueError:
+                    cd = None
+                if cd and cd >= past_limit:
+                    include = True
+            if include:
                 results.append({
                     "date": d.isoformat(),
                     "company_id": cid,
@@ -2171,7 +2229,9 @@ async def get_home_schedules(user_id: str = Query(...)):
                     "event_type": "single",
                     "name": ev.get("name", ""),
                     "notes": ev.get("notes", ""),
-                    "completed": False,
+                    "completed": bool(ev.get("completed")),
+                    "completed_by": ev.get("completed_by"),
+                    "completed_at": ev.get("completed_at"),
                 })
         for ev in sched.get("fixed_events", []):
             recurrence = ev.get("recurrence", "monthly")

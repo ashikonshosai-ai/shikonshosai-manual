@@ -778,7 +778,8 @@
               <option value="">担当者: すべて</option>
             </select>
             <button class="btn btn-blue" onclick="openAddCompanyModal()">＋ 会社を追加</button>
-            <button class="btn btn-gray" onclick="openCompanyCsvModal()">📥 CSVインポート</button>
+            <button class="btn btn-gray" onclick="openCompanyCsvModal()">📥 会社CSVインポート</button>
+            <button class="btn btn-gray" onclick="openAssignCsvModal()">👥 担当者CSVインポート</button>
             <button class="btn btn-gray" onclick="clearCompanyCache()">🔄 キャッシュ更新</button>
           </div>
           <div id="ck-list-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:10px;"></div>
@@ -846,7 +847,7 @@
           </div>
           <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
             <button class="btn btn-gray" onclick="closeCompanyModal()">キャンセル</button>
-            <button class="btn btn-blue" onclick="saveCompanyModal()">保存</button>
+            <button class="btn btn-blue" onclick="saveCompanyModal(this)">保存</button>
           </div>
         </div>
       </div>
@@ -868,7 +869,31 @@ freee_enabled: 1=あり / 0=なし</pre>
           <div id="company-csv-result" style="font-size:12px; margin-bottom:12px;"></div>
           <div style="display:flex; gap:8px; justify-content:flex-end;">
             <button class="btn btn-gray" onclick="closeCompanyCsvModal()">閉じる</button>
-            <button class="btn btn-blue" onclick="uploadCompanyCsv()">アップロード</button>
+            <button class="btn btn-blue" onclick="uploadCompanyCsv(this)">アップロード</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 担当者割り当てCSVインポートモーダル -->
+      <div id="assign-csv-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+        <div style="background:white; border-radius:12px; padding:24px; max-width:520px; width:90%;">
+          <div style="font-size:16px; font-weight:600; margin-bottom:12px;">担当者CSVインポート</div>
+          <pre style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:10px; font-size:11px; white-space:pre-wrap; line-height:1.5; margin-bottom:12px;">担当者割り当てCSV（1行目はヘッダー）：
+code,emails
+
+例：
+101234,tanaka@example.com;yamada@example.com
+102567,suzuki@example.com
+
+・code：会社CD
+・emails：担当者のメールアドレス（セミコロン区切りで複数指定可）
+・既存の担当者設定は上書きされます
+・登録済みのメールアドレスのみ有効です</pre>
+          <input type="file" id="assign-csv-file" accept=".csv" style="margin-bottom:12px;" />
+          <div id="assign-csv-result" style="font-size:12px; margin-bottom:12px;"></div>
+          <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <button class="btn btn-gray" onclick="closeAssignCsvModal()">閉じる</button>
+            <button class="btn btn-blue" onclick="uploadAssignCsv(this)">アップロード</button>
           </div>
         </div>
       </div>
@@ -3967,9 +3992,14 @@ function renderCompanyList() {
 }
 
 async function clearCompanyCache() {
-  await fetch('/api/companies/clear_cache', { method: 'POST' });
-  await loadCompanyKarteData();
-  renderCompanyList();
+  try {
+    await fetch('/api/companies/clear_cache', { method: 'POST' });
+    await loadCompanyKarteData();
+    renderCompanyList();
+    showToast('会社リストを更新しました');
+  } catch (e) {
+    showToast('更新に失敗しました', 'error');
+  }
 }
 
 function openAddCompanyModal() {
@@ -3999,9 +4029,11 @@ function closeCompanyModal() {
   _ckEditMode = null;
 }
 
-async function saveCompanyModal() {
+async function saveCompanyModal(btn) {
+  btn = btn || event?.currentTarget;
   const name = document.getElementById('cm-name').value.trim();
-  if (!name) { alert('会社名は必須です'); return; }
+  if (!name) { showToast('会社名は必須です', 'error'); return; }
+  const isEdit = !!_ckEditMode;
   const body = {
     name,
     code: document.getElementById('cm-code').value.trim(),
@@ -4013,30 +4045,25 @@ async function saveCompanyModal() {
     notes: document.getElementById('cm-notes').value,
     assigned_users: Array.from(document.querySelectorAll('#cm-assigned input:checked')).map(cb => cb.value),
   };
+  if (btn) { btn.disabled = true; btn.dataset._label = btn.textContent; btn.textContent = '保存中...'; }
   try {
-    if (_ckEditMode) {
-      await fetch('/api/companies/' + encodeURIComponent(_ckEditMode), {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body)
-      });
-    } else {
-      await fetch('/api/companies', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body)
-      });
-    }
+    const url = isEdit ? '/api/companies/' + encodeURIComponent(_ckEditMode) : '/api/companies';
+    const method = isEdit ? 'PUT' : 'POST';
+    const r = await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error('http ' + r.status);
+    showToast(isEdit ? '保存しました' : '会社を追加しました');
     closeCompanyModal();
     await loadCompanyKarteData();
-    if (_ckEditMode && _ckCurrentCompanyId === _ckEditMode) {
+    if (isEdit && _ckCurrentCompanyId === _ckEditMode) {
       renderKarteHeader();
       if (_ckCurrentTab === 'info') renderInfoTab();
     } else {
       renderCompanyList();
     }
   } catch (e) {
-    alert('保存に失敗しました');
+    showToast(isEdit ? '保存に失敗しました' : '会社の追加に失敗しました', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset._label || '保存'; }
   }
 }
 
@@ -4050,21 +4077,59 @@ function closeCompanyCsvModal() {
   document.getElementById('company-csv-modal').style.display = 'none';
 }
 
-async function uploadCompanyCsv() {
-  const f = document.getElementById('company-csv-file').files[0];
-  if (!f) { alert('CSVファイルを選択してください'); return; }
+function openAssignCsvModal() {
+  document.getElementById('assign-csv-file').value = '';
+  document.getElementById('assign-csv-result').innerHTML = '';
+  document.getElementById('assign-csv-modal').style.display = 'flex';
+}
+
+function closeAssignCsvModal() {
+  document.getElementById('assign-csv-modal').style.display = 'none';
+}
+
+async function uploadAssignCsv(btn) {
+  const f = document.getElementById('assign-csv-file').files[0];
+  if (!f) { showToast('CSVファイルを選択してください', 'error'); return; }
   const fd = new FormData();
   fd.append('file', f);
+  if (btn) { btn.disabled = true; btn.dataset._label = btn.textContent; btn.textContent = '送信中...'; }
+  try {
+    const r = await fetch('/api/companies/assign_csv', { method: 'POST', body: fd });
+    if (!r.ok) throw new Error('http ' + r.status);
+    const data = await r.json();
+    document.getElementById('assign-csv-result').innerHTML =
+      `更新: ${data.updated}件 / スキップ: ${data.skipped}件` +
+      (data.errors && data.errors.length ? `<div style="color:#E24B4A;margin-top:6px;">エラー: ${data.errors.length}件<br>${data.errors.slice(0, 8).map(esc).join('<br>')}</div>` : '');
+    showToast(`更新: ${data.updated}件 / スキップ: ${data.skipped}件`);
+    await loadCompanyKarteData();
+    renderCompanyList();
+  } catch (e) {
+    showToast('インポートに失敗しました', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset._label || 'アップロード'; }
+  }
+}
+
+async function uploadCompanyCsv(btn) {
+  const f = document.getElementById('company-csv-file').files[0];
+  if (!f) { showToast('CSVファイルを選択してください', 'error'); return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  if (btn) { btn.disabled = true; btn.dataset._label = btn.textContent; btn.textContent = '送信中...'; }
   try {
     const r = await fetch('/api/companies/import_csv', { method: 'POST', body: fd });
+    if (!r.ok) throw new Error('http ' + r.status);
     const data = await r.json();
     document.getElementById('company-csv-result').innerHTML =
       `追加: ${data.added}件 / 更新: ${data.updated}件` +
       (data.errors && data.errors.length ? `<div style="color:#E24B4A;margin-top:6px;">エラー: ${data.errors.length}件<br>${data.errors.slice(0, 5).map(esc).join('<br>')}</div>` : '');
+    showToast(`追加: ${data.added}件 / 更新: ${data.updated}件`);
     await loadCompanyKarteData();
     renderCompanyList();
   } catch (e) {
-    alert('アップロードに失敗しました');
+    showToast('インポートに失敗しました', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset._label || 'アップロード'; }
   }
 }
 
@@ -4181,9 +4246,15 @@ async function deleteCompany() {
   const c = _ckCurrentCompany();
   if (!c) return;
   if (!confirm(`「${c.name}」を削除しますか？\n手順書・スケジュール・申し送りもすべて削除されます。`)) return;
-  await fetch('/api/companies/' + encodeURIComponent(c.id), { method: 'DELETE' });
-  await loadCompanyKarteData();
-  backToCompanyList();
+  try {
+    const r = await fetch('/api/companies/' + encodeURIComponent(c.id), { method: 'DELETE' });
+    if (!r.ok) throw new Error('http ' + r.status);
+    await loadCompanyKarteData();
+    backToCompanyList();
+    showToast('削除しました');
+  } catch (e) {
+    showToast('削除に失敗しました', 'error');
+  }
 }
 
 function renderManualTab() {
@@ -4193,7 +4264,7 @@ function renderManualTab() {
   document.getElementById('ck-tab-content').innerHTML = `
     <div style="font-size:11px; color:#64748b; margin-bottom:6px;">${meta}</div>
     <div id="ck-quill-editor"></div>
-    <button class="btn btn-blue" onclick="saveCompanyManual()">保存</button>`;
+    <button class="btn btn-blue" onclick="saveCompanyManual(this)">保存</button>`;
   _ckQuillInstance = new Quill('#ck-quill-editor', {
     theme: 'snow',
     modules: {
@@ -4210,25 +4281,42 @@ function renderManualTab() {
   _ckQuillInstance.root.innerHTML = (_ckCurrentManual && _ckCurrentManual.content) || '';
 }
 
-async function saveCompanyManual() {
+async function saveCompanyManual(btn) {
   if (!_ckQuillInstance || !_ckCurrentCompanyId) return;
   const content = _ckQuillInstance.root.innerHTML;
-  const r = await fetch('/api/company_manuals/' + encodeURIComponent(_ckCurrentCompanyId), {
-    method: 'PUT',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ content, user_id: _currentUser?.id })
-  });
-  if (r.ok) {
+  if (btn) { btn.disabled = true; btn.dataset._label = btn.textContent; btn.textContent = '保存中...'; }
+  try {
+    const r = await fetch('/api/company_manuals/' + encodeURIComponent(_ckCurrentCompanyId), {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ content, user_id: _currentUser?.id })
+    });
+    if (!r.ok) throw new Error('http ' + r.status);
     _ckCurrentManual = await r.json();
-    alert('保存しました');
+    showToast('手順書を保存しました');
     renderManualTab();
-  } else {
-    alert('保存に失敗しました');
+  } catch (e) {
+    showToast('保存に失敗しました', 'error');
+  } finally {
+    if (btn && btn.parentNode) { btn.disabled = false; btn.textContent = btn.dataset._label || '保存'; }
   }
 }
 
 function getUserName(uid) {
   return (_ckUsers.find(u => u.id === uid) || {}).name || uid;
+}
+
+function _isSingleEventVisible(ev) {
+  // 完了から14日経過したものは非表示。それ以外は常に表示。
+  if (!ev.completed) return true;
+  if (!ev.completed_at) return true;
+  const completed = new Date(ev.completed_at);
+  if (isNaN(completed.getTime())) return true;
+  const limit = new Date(completed);
+  limit.setDate(limit.getDate() + 14);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today <= limit;
 }
 
 function renderScheduleTab() {
@@ -4244,13 +4332,20 @@ function renderScheduleTab() {
       <td><button class="btn-sm" onclick="editFixedEvent('${ev.id}')">編集</button> <button class="btn-text-red" onclick="deleteFixedEvent('${ev.id}')">削除</button></td>
     </tr>`;
   }).join('');
-  const singleRows = (s.single_events || []).map(ev => {
+  const visibleSingles = (s.single_events || []).filter(_isSingleEventVisible);
+  // 未完了を上、完了済みを下、それぞれ日付順
+  visibleSingles.sort((a, b) => {
+    if (!!a.completed !== !!b.completed) return a.completed ? 1 : -1;
+    return (a.date || '').localeCompare(b.date || '');
+  });
+  const singleRows = visibleSingles.map(ev => {
     const d = ev.date ? new Date(ev.date) : null;
     const dateStr = d ? `${d.getMonth() + 1}/${d.getDate()} (${'日月火水木金土'[d.getDay()]})` : '';
     const completedInfo = ev.completed
       ? `✓ ${esc(getUserName(ev.completed_by || ''))} ${ev.completed_at ? esc(ev.completed_at.slice(5, 10)) : ''}`
       : '';
-    return `<tr class="${ev.completed ? 'ck-completed' : ''}">
+    const opacity = ev.completed ? 'opacity:0.4;' : '';
+    return `<tr style="${opacity}">
       <td>${dateStr}</td>
       <td>${esc(ev.name)}</td>
       <td>${esc(ev.notes || '')} ${completedInfo}</td>
@@ -4320,7 +4415,7 @@ function closeFixedEventForm() {
 
 async function saveFixedEvent(eventId) {
   const name = document.getElementById('fe-name').value.trim();
-  if (!name) { alert('イベント名は必須です'); return; }
+  if (!name) { showToast('イベント名は必須です', 'error'); return; }
   const recurrence = document.getElementById('fe-recurrence').value;
   const body = { name, recurrence, notes: document.getElementById('fe-notes').value };
   if (recurrence === 'monthly') {
@@ -4331,18 +4426,30 @@ async function saveFixedEvent(eventId) {
   }
   const url = '/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/fixed_events' + (eventId ? '/' + encodeURIComponent(eventId) : '');
   const method = eventId ? 'PUT' : 'POST';
-  await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-  await loadKarteData(_ckCurrentCompanyId);
-  renderScheduleTab();
+  try {
+    const r = await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error('http ' + r.status);
+    await loadKarteData(_ckCurrentCompanyId);
+    renderScheduleTab();
+    showToast('保存しました');
+  } catch (e) {
+    showToast('保存に失敗しました', 'error');
+  }
 }
 
 function editFixedEvent(eventId) { openFixedEventForm(eventId); }
 
 async function deleteFixedEvent(eventId) {
   if (!confirm('この固定イベントを削除しますか？')) return;
-  await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/fixed_events/' + encodeURIComponent(eventId), { method: 'DELETE' });
-  await loadKarteData(_ckCurrentCompanyId);
-  renderScheduleTab();
+  try {
+    const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/fixed_events/' + encodeURIComponent(eventId), { method: 'DELETE' });
+    if (!r.ok) throw new Error('http ' + r.status);
+    await loadKarteData(_ckCurrentCompanyId);
+    renderScheduleTab();
+    showToast('保存しました');
+  } catch (e) {
+    showToast('保存に失敗しました', 'error');
+  }
 }
 
 function openSingleEventForm(eventId) {
@@ -4366,32 +4473,52 @@ function closeSingleEventForm() {
 async function saveSingleEvent(eventId) {
   const name = document.getElementById('se-name').value.trim();
   const dateVal = document.getElementById('se-date').value;
-  if (!name || !dateVal) { alert('日付・イベント名は必須です'); return; }
+  if (!name || !dateVal) { showToast('日付・イベント名は必須です', 'error'); return; }
   const body = { name, date: dateVal, notes: document.getElementById('se-notes').value };
   const url = '/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/single_events' + (eventId ? '/' + encodeURIComponent(eventId) : '');
   const method = eventId ? 'PUT' : 'POST';
-  await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-  await loadKarteData(_ckCurrentCompanyId);
-  renderScheduleTab();
+  try {
+    const r = await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error('http ' + r.status);
+    await loadKarteData(_ckCurrentCompanyId);
+    renderScheduleTab();
+    showToast('保存しました');
+  } catch (e) {
+    showToast('保存に失敗しました', 'error');
+  }
 }
 
 function editSingleEvent(eventId) { openSingleEventForm(eventId); }
 
 async function deleteSingleEvent(eventId) {
   if (!confirm('この単発イベントを削除しますか？')) return;
-  await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/single_events/' + encodeURIComponent(eventId), { method: 'DELETE' });
-  await loadKarteData(_ckCurrentCompanyId);
-  renderScheduleTab();
+  try {
+    const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/single_events/' + encodeURIComponent(eventId), { method: 'DELETE' });
+    if (!r.ok) throw new Error('http ' + r.status);
+    await loadKarteData(_ckCurrentCompanyId);
+    renderScheduleTab();
+    showToast('保存しました');
+  } catch (e) {
+    showToast('保存に失敗しました', 'error');
+  }
 }
 
 async function toggleSingleComplete(eventId) {
-  await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/single_events/' + encodeURIComponent(eventId) + '/complete', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ user_id: _currentUser?.id })
-  });
-  await loadKarteData(_ckCurrentCompanyId);
-  renderScheduleTab();
+  try {
+    const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/single_events/' + encodeURIComponent(eventId) + '/complete', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ user_id: _currentUser?.id })
+    });
+    if (!r.ok) throw new Error('http ' + r.status);
+    const updated = await r.json();
+    await loadKarteData(_ckCurrentCompanyId);
+    renderScheduleTab();
+    showToast(updated.completed ? '完了にしました' : '完了を取り消しました');
+  } catch (e) {
+    showToast('更新に失敗しました', 'error');
+    renderScheduleTab();
+  }
 }
 
 function renderMemoTab() {
@@ -4432,20 +4559,32 @@ function openMemoForm() {
 async function saveMemo() {
   const text = document.getElementById('memo-text').value.trim();
   if (!text) return;
-  await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/memos', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ text, user_id: _currentUser?.id })
-  });
-  await loadKarteData(_ckCurrentCompanyId);
-  renderMemoTab();
+  try {
+    const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/memos', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ text, user_id: _currentUser?.id })
+    });
+    if (!r.ok) throw new Error('http ' + r.status);
+    await loadKarteData(_ckCurrentCompanyId);
+    renderMemoTab();
+    showToast('メモを追加しました');
+  } catch (e) {
+    showToast('保存に失敗しました', 'error');
+  }
 }
 
 async function deleteMemo(memoId) {
   if (!confirm('このメモを削除しますか？')) return;
-  await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/memos/' + encodeURIComponent(memoId), { method: 'DELETE' });
-  await loadKarteData(_ckCurrentCompanyId);
-  renderMemoTab();
+  try {
+    const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/memos/' + encodeURIComponent(memoId), { method: 'DELETE' });
+    if (!r.ok) throw new Error('http ' + r.status);
+    await loadKarteData(_ckCurrentCompanyId);
+    renderMemoTab();
+    showToast('メモを削除しました');
+  } catch (e) {
+    showToast('削除に失敗しました', 'error');
+  }
 }
 
 // ----- ホーム用スケジュール（遅延取得） -----
@@ -4456,26 +4595,82 @@ async function loadHomeSchedules() {
     const r = await fetch('/api/home/schedules?user_id=' + encodeURIComponent(_currentUser.id));
     const data = await r.json();
     const schedules = data.schedules || [];
-    if (schedules.length === 0) {
-      container.innerHTML = '<div class="empty" style="padding:8px 0; color:#94a3b8;">向こう2週間の予定はありません</div>';
-      return;
-    }
-    const wd = '日月火水木金土';
-    container.innerHTML = schedules.map(s => {
-      const d = new Date(s.date);
-      const dateStr = `${d.getMonth() + 1}/${d.getDate()} (${wd[d.getDay()]})`;
-      const color = s.event_type === 'single' ? '#2563eb'
-        : s.event_type === 'fixed_monthly' ? '#f97316' : '#16a34a';
-      return `<div class="home-schedule-row" onclick="jumpToKarteSchedule('${esc(s.company_id)}')">
-        <span class="home-schedule-dot" style="background:${color};"></span>
-        <span style="font-weight:600; min-width:80px;">${dateStr}</span>
-        <span style="color:#475569; min-width:140px;">${esc(s.company_name)}</span>
-        <span>${esc(s.name)}</span>
-      </div>`;
-    }).join('');
+    renderHomeSchedules(schedules);
   } catch (e) {
     container.innerHTML = '';
   }
+}
+
+function renderHomeSchedules(schedules) {
+  const container = document.getElementById('home-schedules');
+  if (!container) return;
+  if (!schedules || schedules.length === 0) {
+    container.innerHTML = '<div class="empty" style="padding:8px 0; color:#94a3b8;">向こう2週間の予定はありません</div>';
+    return;
+  }
+  const sorted = [
+    ...schedules.filter(s => !s.completed),
+    ...schedules.filter(s => s.completed),
+  ];
+  const wd = '日月火水木金土';
+  container.innerHTML = '';
+  sorted.forEach(s => {
+    const d = new Date(s.date);
+    const dateStr = `${d.getMonth() + 1}/${d.getDate()} (${wd[d.getDay()]})`;
+    const color = s.event_type === 'single' ? '#2563eb'
+      : s.event_type === 'fixed_monthly' ? '#f97316' : '#16a34a';
+    const row = document.createElement('div');
+    row.className = 'home-schedule-row';
+    row.style.opacity = s.completed ? '0.4' : '1';
+    if (s.event_type === 'single') {
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!s.completed;
+      cb.style.cssText = 'width:16px;height:16px;cursor:pointer;flex-shrink:0;';
+      cb.addEventListener('click', e => e.stopPropagation());
+      cb.addEventListener('change', async () => {
+        const wasChecked = cb.checked;
+        try {
+          const r = await fetch(`/api/company_schedules/${encodeURIComponent(s.company_id)}/single_events/${encodeURIComponent(s.event_id)}/complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: _currentUser?.id })
+          });
+          if (!r.ok) throw new Error('http ' + r.status);
+          showToast(wasChecked ? '完了にしました' : '完了を取り消しました');
+          await loadHomeSchedules();
+        } catch (err) {
+          showToast('更新に失敗しました', 'error');
+          cb.checked = !wasChecked;
+        }
+      });
+      row.appendChild(cb);
+    } else {
+      const spacer = document.createElement('span');
+      spacer.style.cssText = 'display:inline-block;width:16px;flex-shrink:0;';
+      row.appendChild(spacer);
+    }
+    const dot = document.createElement('span');
+    dot.className = 'home-schedule-dot';
+    dot.style.background = color;
+    row.appendChild(dot);
+    const dateEl = document.createElement('span');
+    dateEl.style.cssText = 'font-weight:600; min-width:80px;';
+    dateEl.textContent = dateStr;
+    row.appendChild(dateEl);
+    const cnameEl = document.createElement('span');
+    cnameEl.style.cssText = 'color:#475569; min-width:140px;';
+    cnameEl.textContent = s.company_name;
+    row.appendChild(cnameEl);
+    const nameEl = document.createElement('span');
+    nameEl.textContent = s.name;
+    row.appendChild(nameEl);
+    row.addEventListener('click', e => {
+      if (e.target.tagName === 'INPUT') return;
+      jumpToKarteSchedule(s.company_id);
+    });
+    container.appendChild(row);
+  });
 }
 
 async function jumpToKarteSchedule(companyId) {
@@ -4489,6 +4684,24 @@ async function jumpToKarteSchedule(companyId) {
   renderKarteHeader();
   switchKarteTab('schedule');
 }
+
+// ===== トースト通知 =====
+function showToast(message, type) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const t = type || 'success';
+  const bg = t === 'success' ? '#1D9E75' : t === 'error' ? '#E24B4A' : '#378ADD';
+  const toast = document.createElement('div');
+  toast.style.cssText = `background:${bg};color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:500;opacity:0;transition:opacity 0.2s;max-width:320px;line-height:1.4;box-shadow:0 2px 8px rgba(0,0,0,0.15);white-space:pre-line;`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  requestAnimationFrame(() => { toast.style.opacity = '1'; });
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 200);
+  }, 3000);
+}
 </script>
+<div id="toast-container" style="position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px;"></div>
 </body>
 </html>
