@@ -1837,6 +1837,31 @@ def _company_schedule_path(company_id: str) -> str:
 def _now_iso() -> str:
     return datetime.now().isoformat()
 
+async def _check_karte_edit_permission(user_id: str, company: dict) -> bool:
+    """admin/leaderまたは担当者であればTrueを返す"""
+    if not user_id:
+        return False
+    users_data = await dropbox_get(USERS_PATH) or {"users": []}
+    users = users_data.get("users", [])
+    user = next((u for u in users if u.get("id") == user_id), None)
+    if not user:
+        return False
+    if user.get("role") in ("admin", "leader"):
+        return True
+    if user_id in (company.get("assigned_users") or []):
+        return True
+    return False
+
+async def _require_company_edit_permission(user_id: str, company_id: str) -> dict:
+    """指定会社の編集権限を確認し、会社データを返す。なければ403/404。"""
+    data = await dropbox_get(COMPANIES_PATH) or {"companies": []}
+    company = next((c for c in data.get("companies", []) if c.get("id") == company_id), None)
+    if not company:
+        raise HTTPException(status_code=404, detail="company not found")
+    if not await _check_karte_edit_permission(user_id, company):
+        raise HTTPException(status_code=403, detail="編集権限がありません")
+    return company
+
 # ----- 会社マスタ -----
 
 @app.get("/api/companies")
@@ -1877,9 +1902,12 @@ async def create_karte_company(request: Request):
 @app.put("/api/companies/{company_id}")
 async def update_karte_company(company_id: str, request: Request):
     body = await request.json()
+    user_id = body.get("user_id", "")
     data = await dropbox_get(COMPANIES_PATH) or {"companies": []}
     for c in data.get("companies", []):
         if c.get("id") == company_id:
+            if not await _check_karte_edit_permission(user_id, c):
+                raise HTTPException(status_code=403, detail="編集権限がありません")
             for field in ["name", "code", "type", "fiscal_month", "industry",
                           "contract_types", "freee_enabled", "notes", "assigned_users"]:
                 if field in body:
@@ -2026,10 +2054,12 @@ async def get_company_manual(company_id: str):
 @app.put("/api/company_manuals/{company_id}")
 async def put_company_manual(company_id: str, request: Request):
     body = await request.json()
+    user_id = body.get("user_id", "")
+    await _require_company_edit_permission(user_id, company_id)
     data = {
         "company_id": company_id,
         "content": body.get("content", ""),
-        "updated_by": body.get("user_id", ""),
+        "updated_by": user_id,
         "updated_at": _now_iso(),
     }
     await dropbox_save(_company_manual_path(company_id), data)
@@ -2057,6 +2087,7 @@ async def get_company_schedule(company_id: str):
 @app.post("/api/company_schedules/{company_id}/fixed_events")
 async def add_fixed_event(company_id: str, request: Request):
     body = await request.json()
+    await _require_company_edit_permission(body.get("user_id", ""), company_id)
     data = await _load_schedule(company_id)
     event = {
         "id": "fe" + uuid4().hex[:8],
@@ -2076,6 +2107,7 @@ async def add_fixed_event(company_id: str, request: Request):
 @app.put("/api/company_schedules/{company_id}/fixed_events/{event_id}")
 async def update_fixed_event(company_id: str, event_id: str, request: Request):
     body = await request.json()
+    await _require_company_edit_permission(body.get("user_id", ""), company_id)
     data = await _load_schedule(company_id)
     for ev in data["fixed_events"]:
         if ev.get("id") == event_id:
@@ -2095,7 +2127,9 @@ async def update_fixed_event(company_id: str, event_id: str, request: Request):
     raise HTTPException(status_code=404, detail="event not found")
 
 @app.delete("/api/company_schedules/{company_id}/fixed_events/{event_id}")
-async def delete_fixed_event(company_id: str, event_id: str):
+async def delete_fixed_event(company_id: str, event_id: str, request: Request):
+    user_id = request.query_params.get("user_id", "")
+    await _require_company_edit_permission(user_id, company_id)
     data = await _load_schedule(company_id)
     before = len(data["fixed_events"])
     data["fixed_events"] = [e for e in data["fixed_events"] if e.get("id") != event_id]
@@ -2107,6 +2141,7 @@ async def delete_fixed_event(company_id: str, event_id: str):
 @app.post("/api/company_schedules/{company_id}/single_events")
 async def add_single_event(company_id: str, request: Request):
     body = await request.json()
+    await _require_company_edit_permission(body.get("user_id", ""), company_id)
     data = await _load_schedule(company_id)
     event = {
         "id": "se" + uuid4().hex[:8],
@@ -2124,6 +2159,7 @@ async def add_single_event(company_id: str, request: Request):
 @app.put("/api/company_schedules/{company_id}/single_events/{event_id}")
 async def update_single_event(company_id: str, event_id: str, request: Request):
     body = await request.json()
+    await _require_company_edit_permission(body.get("user_id", ""), company_id)
     data = await _load_schedule(company_id)
     for ev in data["single_events"]:
         if ev.get("id") == event_id:
@@ -2135,7 +2171,9 @@ async def update_single_event(company_id: str, event_id: str, request: Request):
     raise HTTPException(status_code=404, detail="event not found")
 
 @app.delete("/api/company_schedules/{company_id}/single_events/{event_id}")
-async def delete_single_event(company_id: str, event_id: str):
+async def delete_single_event(company_id: str, event_id: str, request: Request):
+    user_id = request.query_params.get("user_id", "")
+    await _require_company_edit_permission(user_id, company_id)
     data = await _load_schedule(company_id)
     before = len(data["single_events"])
     data["single_events"] = [e for e in data["single_events"] if e.get("id") != event_id]
@@ -2166,11 +2204,13 @@ async def complete_single_event(company_id: str, event_id: str, request: Request
 @app.post("/api/company_schedules/{company_id}/memos")
 async def add_memo(company_id: str, request: Request):
     body = await request.json()
+    user_id = body.get("user_id", "")
+    await _require_company_edit_permission(user_id, company_id)
     data = await _load_schedule(company_id)
     memo = {
         "id": "m" + uuid4().hex[:8],
         "text": body.get("text", ""),
-        "created_by": body.get("user_id", ""),
+        "created_by": user_id,
         "created_at": _now_iso(),
     }
     data["memos"].insert(0, memo)
@@ -2178,7 +2218,9 @@ async def add_memo(company_id: str, request: Request):
     return memo
 
 @app.delete("/api/company_schedules/{company_id}/memos/{memo_id}")
-async def delete_memo(company_id: str, memo_id: str):
+async def delete_memo(company_id: str, memo_id: str, request: Request):
+    user_id = request.query_params.get("user_id", "")
+    await _require_company_edit_permission(user_id, company_id)
     data = await _load_schedule(company_id)
     before = len(data["memos"])
     data["memos"] = [m for m in data["memos"] if m.get("id") != memo_id]

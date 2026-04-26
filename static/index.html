@@ -1796,6 +1796,7 @@ async function doLogout() {
     body: JSON.stringify({ user_id: _currentUser?.id })
   });
   localStorage.removeItem('manual_user');
+  localStorage.removeItem('home_schedules_cache');
   sessionStorage.removeItem('manual_session_pw');
   _currentUser = null;
   _sessionPassword = null;
@@ -3926,6 +3927,10 @@ async function showCompanyKarte() {
   render();
   document.getElementById('ck-list-screen').style.display = 'block';
   document.getElementById('ck-detail-screen').style.display = 'none';
+  const grid = document.getElementById('ck-list-grid');
+  if (grid) {
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1; padding:40px; text-align:center; color:#94a3b8; font-size:13px;">読み込み中...</div>';
+  }
   await loadCompanyKarteData();
   renderCompanyList();
 }
@@ -3956,6 +3961,23 @@ function populateUserFilter() {
   sel.value = current;
 }
 
+let _ckRenderToken = 0;
+
+function _createCompanyCardHTML(c, userMap) {
+  const typeBadge = c.type === 'self'
+    ? '<span class="ck-badge ck-badge-self">自計化</span>'
+    : '<span class="ck-badge ck-badge-bk">記帳代行</span>';
+  const fiscalBadge = c.fiscal_month ? `<span class="ck-badge ck-badge-fiscal">決算 ${c.fiscal_month}月</span>` : '';
+  const users = (c.assigned_users || []).map(uid => userMap[uid]).filter(Boolean).join('・');
+  return `
+    <div class="ck-card" onclick="showCompanyDetail('${c.id}')">
+      <div class="ck-card-name">${esc(c.name)}</div>
+      <div class="ck-card-code">${esc(c.code || '')}</div>
+      <div class="ck-card-badges">${typeBadge}${fiscalBadge}</div>
+      <div class="ck-card-users">${esc(users || '担当者未設定')}</div>
+    </div>`;
+}
+
 function renderCompanyList() {
   const grid = document.getElementById('ck-list-grid');
   if (!grid) return;
@@ -3975,20 +3997,22 @@ function renderCompanyList() {
     grid.innerHTML = '<div class="empty" style="grid-column:1/-1; padding:20px; text-align:center; color:#94a3b8;">該当する会社がありません</div>';
     return;
   }
-  grid.innerHTML = filtered.map(c => {
-    const typeBadge = c.type === 'self'
-      ? '<span class="ck-badge ck-badge-self">自計化</span>'
-      : '<span class="ck-badge ck-badge-bk">記帳代行</span>';
-    const fiscalBadge = c.fiscal_month ? `<span class="ck-badge ck-badge-fiscal">決算 ${c.fiscal_month}月</span>` : '';
-    const users = (c.assigned_users || []).map(uid => userMap[uid]).filter(Boolean).join('・');
-    return `
-      <div class="ck-card" onclick="showCompanyDetail('${c.id}')">
-        <div class="ck-card-name">${esc(c.name)}</div>
-        <div class="ck-card-code">${esc(c.code || '')}</div>
-        <div class="ck-card-badges">${typeBadge}${fiscalBadge}</div>
-        <div class="ck-card-users">${esc(users || '担当者未設定')}</div>
-      </div>`;
-  }).join('');
+
+  // 20件ずつ遅延描画（UIをブロックしない）
+  grid.innerHTML = '';
+  const token = ++_ckRenderToken;
+  const BATCH_SIZE = 20;
+  let index = 0;
+  function renderBatch() {
+    if (token !== _ckRenderToken) return; // 別の描画が走ったらキャンセル
+    const end = Math.min(index + BATCH_SIZE, filtered.length);
+    const html = [];
+    for (let i = index; i < end; i++) html.push(_createCompanyCardHTML(filtered[i], userMap));
+    grid.insertAdjacentHTML('beforeend', html.join(''));
+    index = end;
+    if (index < filtered.length) requestAnimationFrame(renderBatch);
+  }
+  renderBatch();
 }
 
 async function clearCompanyCache() {
@@ -4044,6 +4068,7 @@ async function saveCompanyModal(btn) {
     freee_enabled: document.getElementById('cm-freee').checked,
     notes: document.getElementById('cm-notes').value,
     assigned_users: Array.from(document.querySelectorAll('#cm-assigned input:checked')).map(cb => cb.value),
+    user_id: _currentUser?.id,
   };
   if (btn) { btn.disabled = true; btn.dataset._label = btn.textContent; btn.textContent = '保存中...'; }
   try {
@@ -4179,6 +4204,7 @@ function renderKarteHeader() {
     : '<span class="ck-badge ck-badge-bk">記帳代行</span>';
   const fiscalBadge = c.fiscal_month ? `<span class="ck-badge ck-badge-fiscal">決算 ${c.fiscal_month}月</span>` : '';
   const users = (c.assigned_users || []).map(uid => userMap[uid]).filter(Boolean).join('・');
+  const canDelete = _currentUser && (_currentUser.role === 'admin' || _currentUser.role === 'leader');
   document.getElementById('ck-detail-header').innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
       <div>
@@ -4188,7 +4214,7 @@ function renderKarteHeader() {
           <span style="font-size:12px; color:#64748b;">担当: ${esc(users || '未設定')}</span>
         </div>
       </div>
-      <button class="btn-text-red" onclick="deleteCompany()">この会社を削除</button>
+      ${canDelete ? '<button class="btn-text-red" onclick="deleteCompany()">この会社を削除</button>' : ''}
     </div>`;
 }
 
@@ -4209,6 +4235,7 @@ function renderInfoTab() {
   const userMap = {};
   _ckUsers.forEach(u => { userMap[u.id] = u.name; });
   const users = (c.assigned_users || []).map(uid => userMap[uid]).filter(Boolean).join('・');
+  const editable = canEditKarte(c);
   document.getElementById('ck-tab-content').innerHTML = `
     <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px; max-width:600px;">
       <table style="width:100%; font-size:13px;">
@@ -4220,7 +4247,7 @@ function renderInfoTab() {
         <tr><th style="text-align:left; padding:6px; color:#64748b;">担当者</th><td style="padding:6px;">${esc(users || '未設定')}</td></tr>
         <tr><th style="text-align:left; padding:6px; color:#64748b; vertical-align:top;">特記事項</th><td style="padding:6px; white-space:pre-wrap;">${esc(c.notes || '')}</td></tr>
       </table>
-      <div style="margin-top:12px;"><button class="btn btn-blue" onclick="editCurrentCompany()">編集</button></div>
+      ${editable ? '<div style="margin-top:12px;"><button class="btn btn-blue" onclick="editCurrentCompany()">編集</button></div>' : ''}
     </div>`;
 }
 
@@ -4258,27 +4285,31 @@ async function deleteCompany() {
 }
 
 function renderManualTab() {
+  const c = _ckCurrentCompany();
+  const editable = canEditKarte(c);
   const meta = _ckCurrentManual && _ckCurrentManual.updated_at
     ? `最終更新: ${esc(_ckCurrentManual.updated_at.slice(0, 16).replace('T', ' '))}${_ckCurrentManual.updated_by ? ' / ' + esc(getUserName(_ckCurrentManual.updated_by)) : ''}`
     : '未保存';
   document.getElementById('ck-tab-content').innerHTML = `
     <div style="font-size:11px; color:#64748b; margin-bottom:6px;">${meta}</div>
     <div id="ck-quill-editor"></div>
-    <button class="btn btn-blue" onclick="saveCompanyManual(this)">保存</button>`;
+    ${editable ? '<button class="btn btn-blue" onclick="saveCompanyManual(this)">保存</button>' : ''}`;
   _ckQuillInstance = new Quill('#ck-quill-editor', {
     theme: 'snow',
+    readOnly: !editable,
     modules: {
-      toolbar: [
+      toolbar: editable ? [
         [{ 'header': [1, 2, 3, false] }],
         ['bold', 'italic', 'underline'],
         [{ 'color': [] }, { 'background': [] }],
         [{ 'list': 'ordered'}, { 'list': 'bullet' }],
         [{ 'indent': '-1'}, { 'indent': '+1' }],
         ['clean']
-      ]
+      ] : false
     }
   });
   _ckQuillInstance.root.innerHTML = (_ckCurrentManual && _ckCurrentManual.content) || '';
+  if (!editable) _ckQuillInstance.enable(false);
 }
 
 async function saveCompanyManual(btn) {
@@ -4306,6 +4337,14 @@ function getUserName(uid) {
   return (_ckUsers.find(u => u.id === uid) || {}).name || uid;
 }
 
+function canEditKarte(company) {
+  if (!_currentUser) return false;
+  if (_currentUser.role === 'admin' || _currentUser.role === 'leader') return true;
+  if (!company) return false;
+  if ((company.assigned_users || []).includes(_currentUser.id)) return true;
+  return false;
+}
+
 function _isSingleEventVisible(ev) {
   // 完了から14日経過したものは非表示。それ以外は常に表示。
   if (!ev.completed) return true;
@@ -4321,15 +4360,20 @@ function _isSingleEventVisible(ev) {
 
 function renderScheduleTab() {
   const s = _ckCurrentSchedule || { fixed_events: [], single_events: [] };
+  const c = _ckCurrentCompany();
+  const editable = canEditKarte(c);
   const fixedRows = (s.fixed_events || []).map(ev => {
     const dateStr = ev.recurrence === 'monthly' ? `毎月${ev.day_of_month}日` : `毎年${ev.month}月${ev.day}日`;
     const recur = ev.recurrence === 'monthly' ? '毎月' : '毎年';
+    const actions = editable
+      ? `<button class="btn-sm" onclick="editFixedEvent('${ev.id}')">編集</button> <button class="btn-text-red" onclick="deleteFixedEvent('${ev.id}')">削除</button>`
+      : '';
     return `<tr>
       <td>${esc(ev.name)}</td>
       <td>${recur}</td>
       <td>${dateStr}</td>
       <td>${esc(ev.notes || '')}</td>
-      <td><button class="btn-sm" onclick="editFixedEvent('${ev.id}')">編集</button> <button class="btn-text-red" onclick="deleteFixedEvent('${ev.id}')">削除</button></td>
+      <td>${actions}</td>
     </tr>`;
   }).join('');
   const visibleSingles = (s.single_events || []).filter(_isSingleEventVisible);
@@ -4345,19 +4389,22 @@ function renderScheduleTab() {
       ? `✓ ${esc(getUserName(ev.completed_by || ''))} ${ev.completed_at ? esc(ev.completed_at.slice(5, 10)) : ''}`
       : '';
     const opacity = ev.completed ? 'opacity:0.4;' : '';
+    const actions = editable
+      ? `${ev.completed ? '' : `<button class="btn-sm" onclick="editSingleEvent('${ev.id}')">編集</button>`} <button class="btn-text-red" onclick="deleteSingleEvent('${ev.id}')">削除</button>`
+      : '';
     return `<tr style="${opacity}">
       <td>${dateStr}</td>
       <td>${esc(ev.name)}</td>
       <td>${esc(ev.notes || '')} ${completedInfo}</td>
       <td><input type="checkbox" ${ev.completed ? 'checked' : ''} onchange="toggleSingleComplete('${ev.id}')"></td>
-      <td>${ev.completed ? '' : `<button class="btn-sm" onclick="editSingleEvent('${ev.id}')">編集</button>`} <button class="btn-text-red" onclick="deleteSingleEvent('${ev.id}')">削除</button></td>
+      <td>${actions}</td>
     </tr>`;
   }).join('');
   document.getElementById('ck-tab-content').innerHTML = `
     <div style="margin-bottom:24px;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
         <div style="font-size:14px; font-weight:600;">📌 固定イベント</div>
-        <button class="btn-sm" onclick="openFixedEventForm()">＋ 固定イベントを追加</button>
+        ${editable ? '<button class="btn-sm" onclick="openFixedEventForm()">＋ 固定イベントを追加</button>' : ''}
       </div>
       <div id="ck-fixed-form" style="display:none; background:#f0f7ff; border:1px solid #93c5fd; border-radius:8px; padding:10px; margin-bottom:10px;"></div>
       <table class="ck-table">
@@ -4368,7 +4415,7 @@ function renderScheduleTab() {
     <div>
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
         <div style="font-size:14px; font-weight:600;">📅 単発イベント</div>
-        <button class="btn-sm" onclick="openSingleEventForm()">＋ 単発イベントを追加</button>
+        ${editable ? '<button class="btn-sm" onclick="openSingleEventForm()">＋ 単発イベントを追加</button>' : ''}
       </div>
       <div id="ck-single-form" style="display:none; background:#f0f7ff; border:1px solid #93c5fd; border-radius:8px; padding:10px; margin-bottom:10px;"></div>
       <table class="ck-table">
@@ -4417,7 +4464,7 @@ async function saveFixedEvent(eventId) {
   const name = document.getElementById('fe-name').value.trim();
   if (!name) { showToast('イベント名は必須です', 'error'); return; }
   const recurrence = document.getElementById('fe-recurrence').value;
-  const body = { name, recurrence, notes: document.getElementById('fe-notes').value };
+  const body = { name, recurrence, notes: document.getElementById('fe-notes').value, user_id: _currentUser?.id };
   if (recurrence === 'monthly') {
     body.day_of_month = parseInt(document.getElementById('fe-day-of-month').value) || 1;
   } else {
@@ -4431,6 +4478,7 @@ async function saveFixedEvent(eventId) {
     if (!r.ok) throw new Error('http ' + r.status);
     await loadKarteData(_ckCurrentCompanyId);
     renderScheduleTab();
+    localStorage.removeItem(HOME_SCHEDULES_CACHE_KEY);
     showToast('保存しました');
   } catch (e) {
     showToast('保存に失敗しました', 'error');
@@ -4442,13 +4490,14 @@ function editFixedEvent(eventId) { openFixedEventForm(eventId); }
 async function deleteFixedEvent(eventId) {
   if (!confirm('この固定イベントを削除しますか？')) return;
   try {
-    const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/fixed_events/' + encodeURIComponent(eventId), { method: 'DELETE' });
+    const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/fixed_events/' + encodeURIComponent(eventId) + '?user_id=' + encodeURIComponent(_currentUser?.id || ''), { method: 'DELETE' });
     if (!r.ok) throw new Error('http ' + r.status);
     await loadKarteData(_ckCurrentCompanyId);
     renderScheduleTab();
-    showToast('保存しました');
+    localStorage.removeItem(HOME_SCHEDULES_CACHE_KEY);
+    showToast('削除しました');
   } catch (e) {
-    showToast('保存に失敗しました', 'error');
+    showToast('削除に失敗しました', 'error');
   }
 }
 
@@ -4474,7 +4523,7 @@ async function saveSingleEvent(eventId) {
   const name = document.getElementById('se-name').value.trim();
   const dateVal = document.getElementById('se-date').value;
   if (!name || !dateVal) { showToast('日付・イベント名は必須です', 'error'); return; }
-  const body = { name, date: dateVal, notes: document.getElementById('se-notes').value };
+  const body = { name, date: dateVal, notes: document.getElementById('se-notes').value, user_id: _currentUser?.id };
   const url = '/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/single_events' + (eventId ? '/' + encodeURIComponent(eventId) : '');
   const method = eventId ? 'PUT' : 'POST';
   try {
@@ -4482,6 +4531,7 @@ async function saveSingleEvent(eventId) {
     if (!r.ok) throw new Error('http ' + r.status);
     await loadKarteData(_ckCurrentCompanyId);
     renderScheduleTab();
+    localStorage.removeItem(HOME_SCHEDULES_CACHE_KEY);
     showToast('保存しました');
   } catch (e) {
     showToast('保存に失敗しました', 'error');
@@ -4493,13 +4543,14 @@ function editSingleEvent(eventId) { openSingleEventForm(eventId); }
 async function deleteSingleEvent(eventId) {
   if (!confirm('この単発イベントを削除しますか？')) return;
   try {
-    const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/single_events/' + encodeURIComponent(eventId), { method: 'DELETE' });
+    const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/single_events/' + encodeURIComponent(eventId) + '?user_id=' + encodeURIComponent(_currentUser?.id || ''), { method: 'DELETE' });
     if (!r.ok) throw new Error('http ' + r.status);
     await loadKarteData(_ckCurrentCompanyId);
     renderScheduleTab();
-    showToast('保存しました');
+    localStorage.removeItem(HOME_SCHEDULES_CACHE_KEY);
+    showToast('削除しました');
   } catch (e) {
-    showToast('保存に失敗しました', 'error');
+    showToast('削除に失敗しました', 'error');
   }
 }
 
@@ -4511,10 +4562,9 @@ async function toggleSingleComplete(eventId) {
       body: JSON.stringify({ user_id: _currentUser?.id })
     });
     if (!r.ok) throw new Error('http ' + r.status);
-    const updated = await r.json();
     await loadKarteData(_ckCurrentCompanyId);
     renderScheduleTab();
-    showToast(updated.completed ? '完了にしました' : '完了を取り消しました');
+    localStorage.removeItem(HOME_SCHEDULES_CACHE_KEY);
   } catch (e) {
     showToast('更新に失敗しました', 'error');
     renderScheduleTab();
@@ -4523,23 +4573,27 @@ async function toggleSingleComplete(eventId) {
 
 function renderMemoTab() {
   const memos = (_ckCurrentSchedule && _ckCurrentSchedule.memos) || [];
+  const c = _ckCurrentCompany();
+  const editable = canEditKarte(c);
   const rows = memos.map(m => {
-    const isMine = m.created_by === _currentUser?.id;
+    const canDelete = editable && (m.created_by === _currentUser?.id || ['admin', 'leader'].includes(_currentUser?.role));
     const dateLabel = m.created_at
       ? new Date(m.created_at).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' })
       : '';
+    const userName = getUserName(m.created_by || '') || '不明';
     return `<div style="border-bottom:1px solid #e2e8f0; padding:12px 0;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-        <div style="font-size:13px; color:#475569;"><span style="font-weight:600;">${esc(dateLabel)}</span>　${esc(getUserName(m.created_by || ''))}</div>
-        ${isMine ? `<button class="btn-text-red" onclick="deleteMemo('${m.id}')">削除</button>` : ''}
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+        <div style="font-size:11px; color:#64748b;">${esc(dateLabel)}　${esc(userName)}</div>
+        ${canDelete ? `<button class="btn-text-red" onclick="deleteMemo('${m.id}')">削除</button>` : ''}
       </div>
-      <div style="font-size:13px; white-space:pre-wrap;">${esc(m.text || '')}</div>
+      <div style="font-size:13px; color:#0f172a; line-height:1.6; white-space:pre-wrap;">${esc(m.text || '')}</div>
     </div>`;
   }).join('');
+  const addButton = editable
+    ? '<div style="margin-bottom:14px;"><button class="btn btn-blue" onclick="openMemoForm()">＋ メモを追加</button></div>'
+    : '';
   document.getElementById('ck-tab-content').innerHTML = `
-    <div style="margin-bottom:14px;">
-      <button class="btn btn-blue" onclick="openMemoForm()">＋ メモを追加</button>
-    </div>
+    ${addButton}
     <div id="ck-memo-form" style="display:none; background:#f0f7ff; border:1px solid #93c5fd; border-radius:8px; padding:10px; margin-bottom:14px;"></div>
     ${rows || '<div class="empty" style="padding:20px; text-align:center; color:#94a3b8;">申し送りはまだありません</div>'}`;
 }
@@ -4577,7 +4631,7 @@ async function saveMemo() {
 async function deleteMemo(memoId) {
   if (!confirm('このメモを削除しますか？')) return;
   try {
-    const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/memos/' + encodeURIComponent(memoId), { method: 'DELETE' });
+    const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/memos/' + encodeURIComponent(memoId) + '?user_id=' + encodeURIComponent(_currentUser?.id || ''), { method: 'DELETE' });
     if (!r.ok) throw new Error('http ' + r.status);
     await loadKarteData(_ckCurrentCompanyId);
     renderMemoTab();
@@ -4587,18 +4641,45 @@ async function deleteMemo(memoId) {
   }
 }
 
-// ----- ホーム用スケジュール（遅延取得） -----
+// ----- ホーム用スケジュール（24時間 localStorage キャッシュ） -----
+const HOME_SCHEDULES_CACHE_KEY = 'home_schedules_cache';
+const HOME_SCHEDULES_CACHE_TTL = 24 * 60 * 60 * 1000;
+
 async function loadHomeSchedules() {
   const container = document.getElementById('home-schedules');
   if (!container || !_currentUser?.id) return;
   try {
+    const cached = localStorage.getItem(HOME_SCHEDULES_CACHE_KEY);
+    if (cached) {
+      const { data, timestamp, user_id } = JSON.parse(cached);
+      if (user_id === _currentUser.id && Date.now() - timestamp < HOME_SCHEDULES_CACHE_TTL) {
+        renderHomeSchedules(data);
+        return;
+      }
+    }
+  } catch (e) {}
+  try {
     const r = await fetch('/api/home/schedules?user_id=' + encodeURIComponent(_currentUser.id));
     const data = await r.json();
     const schedules = data.schedules || [];
+    try {
+      localStorage.setItem(HOME_SCHEDULES_CACHE_KEY, JSON.stringify({
+        data: schedules,
+        timestamp: Date.now(),
+        user_id: _currentUser.id,
+      }));
+    } catch (e) {}
     renderHomeSchedules(schedules);
   } catch (e) {
     container.innerHTML = '';
   }
+}
+
+function _formatHomeScheduleDate(s) {
+  const d = new Date(s.date);
+  if (isNaN(d.getTime())) return '';
+  const wd = '日月火水木金土';
+  return `${d.getMonth() + 1}/${d.getDate()} (${wd[d.getDay()]})`;
 }
 
 function renderHomeSchedules(schedules) {
@@ -4612,24 +4693,21 @@ function renderHomeSchedules(schedules) {
     ...schedules.filter(s => !s.completed),
     ...schedules.filter(s => s.completed),
   ];
-  const wd = '日月火水木金土';
   container.innerHTML = '';
   sorted.forEach(s => {
-    const d = new Date(s.date);
-    const dateStr = `${d.getMonth() + 1}/${d.getDate()} (${wd[d.getDay()]})`;
-    const color = s.event_type === 'single' ? '#2563eb'
-      : s.event_type === 'fixed_monthly' ? '#f97316' : '#16a34a';
     const row = document.createElement('div');
-    row.className = 'home-schedule-row';
-    row.style.opacity = s.completed ? '0.4' : '1';
+    row.style.cssText = `display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid #e2e8f0;opacity:${s.completed ? 0.4 : 1};`;
+
     if (s.event_type === 'single') {
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.checked = !!s.completed;
-      cb.style.cssText = 'width:16px;height:16px;cursor:pointer;flex-shrink:0;';
+      cb.style.cssText = 'width:15px;height:15px;cursor:pointer;flex-shrink:0;';
       cb.addEventListener('click', e => e.stopPropagation());
       cb.addEventListener('change', async () => {
         const wasChecked = cb.checked;
+        // optimistic update
+        row.style.opacity = wasChecked ? '0.4' : '1';
         try {
           const r = await fetch(`/api/company_schedules/${encodeURIComponent(s.company_id)}/single_events/${encodeURIComponent(s.event_id)}/complete`, {
             method: 'POST',
@@ -4637,43 +4715,48 @@ function renderHomeSchedules(schedules) {
             body: JSON.stringify({ user_id: _currentUser?.id })
           });
           if (!r.ok) throw new Error('http ' + r.status);
-          showToast(wasChecked ? '完了にしました' : '完了を取り消しました');
-          await loadHomeSchedules();
+          s.completed = wasChecked;
+          // キャッシュを削除して次回再取得
+          localStorage.removeItem(HOME_SCHEDULES_CACHE_KEY);
         } catch (err) {
-          showToast('更新に失敗しました', 'error');
           cb.checked = !wasChecked;
+          row.style.opacity = !wasChecked ? '0.4' : '1';
+          showToast('更新に失敗しました', 'error');
         }
       });
       row.appendChild(cb);
     } else {
-      const spacer = document.createElement('span');
-      spacer.style.cssText = 'display:inline-block;width:16px;flex-shrink:0;';
-      row.appendChild(spacer);
+      const dot = document.createElement('div');
+      dot.style.cssText = `width:6px;height:6px;border-radius:50%;flex-shrink:0;margin:0 4px 0 5px;background:${s.event_type === 'fixed_monthly' ? '#EF9F27' : '#1D9E75'};`;
+      row.appendChild(dot);
     }
-    const dot = document.createElement('span');
-    dot.className = 'home-schedule-dot';
-    dot.style.background = color;
-    row.appendChild(dot);
+
     const dateEl = document.createElement('span');
-    dateEl.style.cssText = 'font-weight:600; min-width:80px;';
-    dateEl.textContent = dateStr;
-    row.appendChild(dateEl);
-    const cnameEl = document.createElement('span');
-    cnameEl.style.cssText = 'color:#475569; min-width:140px;';
-    cnameEl.textContent = s.company_name;
-    row.appendChild(cnameEl);
+    dateEl.style.cssText = 'font-size:12px;color:#64748b;min-width:72px;flex-shrink:0;font-weight:600;';
+    dateEl.textContent = _formatHomeScheduleDate(s);
+
+    const companyEl = document.createElement('span');
+    companyEl.style.cssText = 'font-size:12px;color:#475569;min-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;';
+    companyEl.textContent = s.company_name || '';
+
     const nameEl = document.createElement('span');
-    nameEl.textContent = s.name;
-    row.appendChild(nameEl);
-    row.addEventListener('click', e => {
-      if (e.target.tagName === 'INPUT') return;
-      jumpToKarteSchedule(s.company_id);
+    nameEl.style.cssText = 'font-size:13px;color:#0f172a;flex:1;';
+    nameEl.textContent = s.name || '';
+
+    [dateEl, companyEl, nameEl].forEach(el => {
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', () => showCompanyKarteDetail(s.company_id, 'schedule'));
     });
+
+    row.appendChild(dateEl);
+    row.appendChild(companyEl);
+    row.appendChild(nameEl);
     container.appendChild(row);
   });
 }
 
-async function jumpToKarteSchedule(companyId) {
+async function showCompanyKarteDetail(companyId, defaultTab) {
+  defaultTab = defaultTab || 'info';
   setView('company-karte');
   render();
   document.getElementById('ck-list-screen').style.display = 'none';
@@ -4682,7 +4765,11 @@ async function jumpToKarteSchedule(companyId) {
   _ckCurrentCompanyId = companyId;
   await loadKarteData(companyId);
   renderKarteHeader();
-  switchKarteTab('schedule');
+  switchKarteTab(defaultTab);
+}
+
+async function jumpToKarteSchedule(companyId) {
+  return showCompanyKarteDetail(companyId, 'schedule');
 }
 
 // ===== トースト通知 =====
