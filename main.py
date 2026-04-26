@@ -1,7 +1,8 @@
-import os, json, httpx, asyncio, time, io, zipfile, calendar
+import os, json, httpx, asyncio, time, io, zipfile, calendar, csv
+from uuid import uuid4
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import dropbox
 from dropbox.exceptions import ApiError as DropboxApiError
 import gspread
@@ -28,6 +29,10 @@ QA_PATH       = "/外注先共有/400000_CC/shikonshosai/qa.json"
 USERS_PATH    = "/外注先共有/400000_CC/shikonshosai/users.json"
 IMAGES_BASE   = "/外注先共有/400000_CC/shikonshosai/manual_images"
 REPORTS_BASE  = "/外注先共有/400000_CC/shikonshosai/reports"
+COMPANIES_PATH         = "/外注先共有/400000_CC/shikonshosai/companies.json"
+COMPANY_MANUALS_BASE   = "/外注先共有/400000_CC/shikonshosai/company_manuals"
+COMPANY_SCHEDULES_BASE = "/外注先共有/400000_CC/shikonshosai/company_schedules"
+CACHE_TTL_COMPANIES    = 30 * 24 * 60 * 60  # 30日
 def get_invoices_path(year_month: str) -> str:
     year = year_month.split("-")[0] if year_month else str(date.today().year)
     return f"/外注先共有/400000_CC/shikonshosai/invoices_{year}.json"
@@ -41,13 +46,18 @@ _CACHE_TTL = 60
 
 def _cache_get(key):
     if key in _cache:
-        data, ts = _cache[key]
-        if time.time() - ts < _CACHE_TTL:
+        entry = _cache[key]
+        if len(entry) == 3:
+            data, ts, ttl = entry
+        else:
+            data, ts = entry
+            ttl = _CACHE_TTL
+        if time.time() - ts < ttl:
             return data
     return None
 
-def _cache_set(key, data):
-    _cache[key] = (data, time.time())
+def _cache_set(key, data, ttl=None):
+    _cache[key] = (data, time.time(), ttl if ttl is not None else _CACHE_TTL)
 
 def _cache_delete(key):
     _cache.pop(key, None)
@@ -73,6 +83,13 @@ async def dropbox_save(path: str, data: dict):
     dbx = _get_dropbox_client()
     content = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
     dbx.files_upload(content, path, mode=dropbox.files.WriteMode.overwrite, mute=True)
+
+async def dropbox_delete(path: str):
+    try:
+        dbx = _get_dropbox_client()
+        dbx.files_delete_v2(path)
+    except DropboxApiError:
+        pass
 
 def _get_gspread_client():
     creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
@@ -391,6 +408,7 @@ async def save_users(request: Request):
     # GET /api/users はindividual_passwordを除外して返すため、既存データから引き継ぐ
     # また共通パスワード（data["password"]）はクライアントから書き換えさせない
     existing = await dropbox_get(USERS_PATH)
+    deleted_user_ids: set = set()
     if existing:
         data["password"] = existing.get("password", data.get("password", ""))
         existing_pw = {u["id"]: u.get("individual_password", "") for u in existing.get("users", [])}
@@ -398,8 +416,24 @@ async def save_users(request: Request):
             uid = user.get("id", "")
             if uid in existing_pw and existing_pw[uid]:
                 user["individual_password"] = existing_pw[uid]
+        new_ids = {u.get("id") for u in data.get("users", [])}
+        deleted_user_ids = {uid for uid in existing_pw.keys() if uid not in new_ids}
     await dropbox_save(USERS_PATH, data)
     _cache_delete("users")
+    if deleted_user_ids:
+        companies_data = await dropbox_get(COMPANIES_PATH)
+        if companies_data and companies_data.get("companies"):
+            changed = False
+            for c in companies_data["companies"]:
+                before = c.get("assigned_users", []) or []
+                after = [uid for uid in before if uid not in deleted_user_ids]
+                if len(after) != len(before):
+                    c["assigned_users"] = after
+                    c["updated_at"] = datetime.now().isoformat()
+                    changed = True
+            if changed:
+                await dropbox_save(COMPANIES_PATH, companies_data)
+                _cache_delete("companies")
     return {"ok": True}
 
 @app.post("/api/auth/login")
@@ -1436,8 +1470,8 @@ _companies_cache = None
 _companies_cache_at = 0
 COMPANIES_CACHE_TTL = 60 * 60 * 24  # 24時間
 
-@app.get("/api/companies")
-async def get_companies():
+@app.get("/api/companies/upstream")
+async def get_companies_upstream():
     global _companies_cache, _companies_cache_at
 
     if _companies_cache and time.time() - _companies_cache_at < COMPANIES_CACHE_TTL:
@@ -1788,6 +1822,412 @@ async def forecast_excel(user_id: str = Header(None)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========================================
+# 会社カルテ機能
+# ========================================
+
+def _company_manual_path(company_id: str) -> str:
+    return f"{COMPANY_MANUALS_BASE}/{company_id}.json"
+
+def _company_schedule_path(company_id: str) -> str:
+    return f"{COMPANY_SCHEDULES_BASE}/{company_id}.json"
+
+def _now_iso() -> str:
+    return datetime.now().isoformat()
+
+# ----- 会社マスタ -----
+
+@app.get("/api/companies")
+async def get_karte_companies():
+    cached = _cache_get("companies")
+    if cached is not None:
+        return cached
+    data = await dropbox_get(COMPANIES_PATH) or {"companies": []}
+    if "companies" not in data:
+        data = {"companies": []}
+    _cache_set("companies", data, ttl=CACHE_TTL_COMPANIES)
+    return data
+
+@app.post("/api/companies")
+async def create_karte_company(request: Request):
+    body = await request.json()
+    data = await dropbox_get(COMPANIES_PATH) or {"companies": []}
+    now = _now_iso()
+    new_company = {
+        "id": "c" + uuid4().hex[:8],
+        "name": body.get("name", ""),
+        "code": body.get("code", ""),
+        "type": body.get("type", "bookkeeping"),
+        "fiscal_month": body.get("fiscal_month") or 0,
+        "industry": body.get("industry", ""),
+        "contract_types": body.get("contract_types", []),
+        "freee_enabled": bool(body.get("freee_enabled", False)),
+        "notes": body.get("notes", ""),
+        "assigned_users": body.get("assigned_users", []),
+        "created_at": now,
+        "updated_at": now,
+    }
+    data.setdefault("companies", []).append(new_company)
+    await dropbox_save(COMPANIES_PATH, data)
+    _cache_delete("companies")
+    return new_company
+
+@app.put("/api/companies/{company_id}")
+async def update_karte_company(company_id: str, request: Request):
+    body = await request.json()
+    data = await dropbox_get(COMPANIES_PATH) or {"companies": []}
+    for c in data.get("companies", []):
+        if c.get("id") == company_id:
+            for field in ["name", "code", "type", "fiscal_month", "industry",
+                          "contract_types", "freee_enabled", "notes", "assigned_users"]:
+                if field in body:
+                    c[field] = body[field]
+            c["updated_at"] = _now_iso()
+            await dropbox_save(COMPANIES_PATH, data)
+            _cache_delete("companies")
+            return c
+    raise HTTPException(status_code=404, detail="company not found")
+
+@app.delete("/api/companies/{company_id}")
+async def delete_karte_company(company_id: str):
+    data = await dropbox_get(COMPANIES_PATH) or {"companies": []}
+    before = len(data.get("companies", []))
+    data["companies"] = [c for c in data.get("companies", []) if c.get("id") != company_id]
+    if len(data["companies"]) == before:
+        raise HTTPException(status_code=404, detail="company not found")
+    await dropbox_save(COMPANIES_PATH, data)
+    _cache_delete("companies")
+    await dropbox_delete(_company_manual_path(company_id))
+    await dropbox_delete(_company_schedule_path(company_id))
+    return {"ok": True}
+
+@app.post("/api/companies/import_csv")
+async def import_karte_companies_csv(file: UploadFile = File(...)):
+    raw = await file.read()
+    text = None
+    for enc in ("cp932", "shift_jis", "utf-8-sig", "utf-8"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        raise HTTPException(status_code=400, detail="encoding error")
+    data = await dropbox_get(COMPANIES_PATH) or {"companies": []}
+    companies = data.setdefault("companies", [])
+    added = 0
+    updated = 0
+    errors = []
+    reader = csv.DictReader(io.StringIO(text))
+    now = _now_iso()
+    for i, row in enumerate(reader, start=2):
+        try:
+            name = (row.get("name") or "").strip()
+            code = (row.get("code") or "").strip()
+            if not name:
+                errors.append(f"行{i}: name必須")
+                continue
+            type_val = (row.get("type") or "bookkeeping").strip() or "bookkeeping"
+            fiscal_raw = (row.get("fiscal_month") or "").strip()
+            fiscal_month = int(fiscal_raw) if fiscal_raw else 0
+            industry = (row.get("industry") or "").strip()
+            ct_raw = (row.get("contract_types") or "").strip()
+            contract_types = [s for s in ct_raw.split(";") if s] if ct_raw else []
+            freee_enabled = (row.get("freee_enabled") or "0").strip() == "1"
+            notes = row.get("notes") or ""
+            existing = next((c for c in companies if code and c.get("code") == code), None)
+            if existing:
+                existing.update({
+                    "name": name, "code": code, "type": type_val,
+                    "fiscal_month": fiscal_month, "industry": industry,
+                    "contract_types": contract_types, "freee_enabled": freee_enabled,
+                    "notes": notes, "updated_at": now,
+                })
+                updated += 1
+            else:
+                companies.append({
+                    "id": "c" + uuid4().hex[:8],
+                    "name": name, "code": code, "type": type_val,
+                    "fiscal_month": fiscal_month, "industry": industry,
+                    "contract_types": contract_types, "freee_enabled": freee_enabled,
+                    "notes": notes, "assigned_users": [],
+                    "created_at": now, "updated_at": now,
+                })
+                added += 1
+        except Exception as e:
+            errors.append(f"行{i}: {e}")
+    await dropbox_save(COMPANIES_PATH, data)
+    _cache_delete("companies")
+    return {"added": added, "updated": updated, "errors": errors}
+
+@app.post("/api/companies/clear_cache")
+async def clear_karte_companies_cache():
+    _cache_delete("companies")
+    return {"ok": True}
+
+# ----- 手順書 -----
+
+@app.get("/api/company_manuals/{company_id}")
+async def get_company_manual(company_id: str):
+    data = await dropbox_get(_company_manual_path(company_id))
+    if not data:
+        return {"company_id": company_id, "content": ""}
+    return data
+
+@app.put("/api/company_manuals/{company_id}")
+async def put_company_manual(company_id: str, request: Request):
+    body = await request.json()
+    data = {
+        "company_id": company_id,
+        "content": body.get("content", ""),
+        "updated_by": body.get("user_id", ""),
+        "updated_at": _now_iso(),
+    }
+    await dropbox_save(_company_manual_path(company_id), data)
+    return data
+
+# ----- スケジュール・申し送り -----
+
+def _empty_schedule(company_id: str) -> dict:
+    return {"company_id": company_id, "fixed_events": [], "single_events": [], "memos": []}
+
+async def _load_schedule(company_id: str) -> dict:
+    data = await dropbox_get(_company_schedule_path(company_id))
+    if not data:
+        return _empty_schedule(company_id)
+    data.setdefault("company_id", company_id)
+    data.setdefault("fixed_events", [])
+    data.setdefault("single_events", [])
+    data.setdefault("memos", [])
+    return data
+
+@app.get("/api/company_schedules/{company_id}")
+async def get_company_schedule(company_id: str):
+    return await _load_schedule(company_id)
+
+@app.post("/api/company_schedules/{company_id}/fixed_events")
+async def add_fixed_event(company_id: str, request: Request):
+    body = await request.json()
+    data = await _load_schedule(company_id)
+    event = {
+        "id": "fe" + uuid4().hex[:8],
+        "name": body.get("name", ""),
+        "recurrence": body.get("recurrence", "monthly"),
+        "notes": body.get("notes", ""),
+    }
+    if event["recurrence"] == "monthly":
+        event["day_of_month"] = int(body.get("day_of_month") or 1)
+    else:
+        event["month"] = int(body.get("month") or 1)
+        event["day"] = int(body.get("day") or 1)
+    data["fixed_events"].append(event)
+    await dropbox_save(_company_schedule_path(company_id), data)
+    return event
+
+@app.put("/api/company_schedules/{company_id}/fixed_events/{event_id}")
+async def update_fixed_event(company_id: str, event_id: str, request: Request):
+    body = await request.json()
+    data = await _load_schedule(company_id)
+    for ev in data["fixed_events"]:
+        if ev.get("id") == event_id:
+            ev["name"] = body.get("name", ev.get("name", ""))
+            ev["recurrence"] = body.get("recurrence", ev.get("recurrence", "monthly"))
+            ev["notes"] = body.get("notes", ev.get("notes", ""))
+            if ev["recurrence"] == "monthly":
+                ev["day_of_month"] = int(body.get("day_of_month") or ev.get("day_of_month") or 1)
+                ev.pop("month", None)
+                ev.pop("day", None)
+            else:
+                ev["month"] = int(body.get("month") or ev.get("month") or 1)
+                ev["day"] = int(body.get("day") or ev.get("day") or 1)
+                ev.pop("day_of_month", None)
+            await dropbox_save(_company_schedule_path(company_id), data)
+            return ev
+    raise HTTPException(status_code=404, detail="event not found")
+
+@app.delete("/api/company_schedules/{company_id}/fixed_events/{event_id}")
+async def delete_fixed_event(company_id: str, event_id: str):
+    data = await _load_schedule(company_id)
+    before = len(data["fixed_events"])
+    data["fixed_events"] = [e for e in data["fixed_events"] if e.get("id") != event_id]
+    if len(data["fixed_events"]) == before:
+        raise HTTPException(status_code=404, detail="event not found")
+    await dropbox_save(_company_schedule_path(company_id), data)
+    return {"ok": True}
+
+@app.post("/api/company_schedules/{company_id}/single_events")
+async def add_single_event(company_id: str, request: Request):
+    body = await request.json()
+    data = await _load_schedule(company_id)
+    event = {
+        "id": "se" + uuid4().hex[:8],
+        "name": body.get("name", ""),
+        "date": body.get("date", ""),
+        "notes": body.get("notes", ""),
+        "completed": False,
+        "completed_by": None,
+        "completed_at": None,
+    }
+    data["single_events"].append(event)
+    await dropbox_save(_company_schedule_path(company_id), data)
+    return event
+
+@app.put("/api/company_schedules/{company_id}/single_events/{event_id}")
+async def update_single_event(company_id: str, event_id: str, request: Request):
+    body = await request.json()
+    data = await _load_schedule(company_id)
+    for ev in data["single_events"]:
+        if ev.get("id") == event_id:
+            ev["name"] = body.get("name", ev.get("name", ""))
+            ev["date"] = body.get("date", ev.get("date", ""))
+            ev["notes"] = body.get("notes", ev.get("notes", ""))
+            await dropbox_save(_company_schedule_path(company_id), data)
+            return ev
+    raise HTTPException(status_code=404, detail="event not found")
+
+@app.delete("/api/company_schedules/{company_id}/single_events/{event_id}")
+async def delete_single_event(company_id: str, event_id: str):
+    data = await _load_schedule(company_id)
+    before = len(data["single_events"])
+    data["single_events"] = [e for e in data["single_events"] if e.get("id") != event_id]
+    if len(data["single_events"]) == before:
+        raise HTTPException(status_code=404, detail="event not found")
+    await dropbox_save(_company_schedule_path(company_id), data)
+    return {"ok": True}
+
+@app.post("/api/company_schedules/{company_id}/single_events/{event_id}/complete")
+async def complete_single_event(company_id: str, event_id: str, request: Request):
+    body = await request.json()
+    user_id = body.get("user_id", "")
+    data = await _load_schedule(company_id)
+    for ev in data["single_events"]:
+        if ev.get("id") == event_id:
+            if ev.get("completed"):
+                ev["completed"] = False
+                ev["completed_by"] = None
+                ev["completed_at"] = None
+            else:
+                ev["completed"] = True
+                ev["completed_by"] = user_id
+                ev["completed_at"] = _now_iso()
+            await dropbox_save(_company_schedule_path(company_id), data)
+            return ev
+    raise HTTPException(status_code=404, detail="event not found")
+
+@app.post("/api/company_schedules/{company_id}/memos")
+async def add_memo(company_id: str, request: Request):
+    body = await request.json()
+    data = await _load_schedule(company_id)
+    memo = {
+        "id": "m" + uuid4().hex[:8],
+        "text": body.get("text", ""),
+        "created_by": body.get("user_id", ""),
+        "created_at": _now_iso(),
+    }
+    data["memos"].insert(0, memo)
+    await dropbox_save(_company_schedule_path(company_id), data)
+    return memo
+
+@app.delete("/api/company_schedules/{company_id}/memos/{memo_id}")
+async def delete_memo(company_id: str, memo_id: str):
+    data = await _load_schedule(company_id)
+    before = len(data["memos"])
+    data["memos"] = [m for m in data["memos"] if m.get("id") != memo_id]
+    if len(data["memos"]) == before:
+        raise HTTPException(status_code=404, detail="memo not found")
+    await dropbox_save(_company_schedule_path(company_id), data)
+    return {"ok": True}
+
+# ----- ホーム用スケジュール -----
+
+@app.get("/api/home/schedules")
+async def get_home_schedules(user_id: str = Query(...)):
+    companies_data = await dropbox_get(COMPANIES_PATH) or {"companies": []}
+    today = date.today()
+    end = today + timedelta(days=14)
+    results = []
+    for c in companies_data.get("companies", []):
+        if user_id not in (c.get("assigned_users") or []):
+            continue
+        cid = c.get("id")
+        cname = c.get("name", "")
+        sched = await _load_schedule(cid)
+        for ev in sched.get("single_events", []):
+            if ev.get("completed"):
+                continue
+            d_str = ev.get("date", "")
+            try:
+                d = date.fromisoformat(d_str)
+            except (ValueError, TypeError):
+                continue
+            if today <= d <= end:
+                results.append({
+                    "date": d.isoformat(),
+                    "company_id": cid,
+                    "company_name": cname,
+                    "event_id": ev.get("id"),
+                    "event_type": "single",
+                    "name": ev.get("name", ""),
+                    "notes": ev.get("notes", ""),
+                    "completed": False,
+                })
+        for ev in sched.get("fixed_events", []):
+            recurrence = ev.get("recurrence", "monthly")
+            if recurrence == "monthly":
+                dom = int(ev.get("day_of_month") or 0)
+                if dom < 1 or dom > 31:
+                    continue
+                candidates = []
+                for offset in (0, 1):
+                    y = today.year
+                    m = today.month + offset
+                    while m > 12:
+                        m -= 12
+                        y += 1
+                    last_day = calendar.monthrange(y, m)[1]
+                    day_use = min(dom, last_day)
+                    try:
+                        candidates.append(date(y, m, day_use))
+                    except ValueError:
+                        pass
+                for d in candidates:
+                    if today <= d <= end:
+                        results.append({
+                            "date": d.isoformat(),
+                            "company_id": cid,
+                            "company_name": cname,
+                            "event_id": ev.get("id"),
+                            "event_type": "fixed_monthly",
+                            "name": ev.get("name", ""),
+                            "notes": ev.get("notes", ""),
+                            "completed": False,
+                        })
+            else:
+                m = int(ev.get("month") or 0)
+                d_ = int(ev.get("day") or 0)
+                if m < 1 or m > 12 or d_ < 1 or d_ > 31:
+                    continue
+                for y in (today.year, today.year + 1):
+                    last_day = calendar.monthrange(y, m)[1]
+                    try:
+                        d = date(y, m, min(d_, last_day))
+                    except ValueError:
+                        continue
+                    if today <= d <= end:
+                        results.append({
+                            "date": d.isoformat(),
+                            "company_id": cid,
+                            "company_name": cname,
+                            "event_id": ev.get("id"),
+                            "event_type": "fixed_yearly",
+                            "name": ev.get("name", ""),
+                            "notes": ev.get("notes", ""),
+                            "completed": False,
+                        })
+    results.sort(key=lambda r: (r["date"], r["company_name"]))
+    return {"schedules": results}
 
 
 @app.get("/")

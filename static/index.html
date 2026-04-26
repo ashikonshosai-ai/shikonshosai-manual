@@ -85,6 +85,26 @@
   .card-content p { margin-bottom: 4px; }
   .card-content ul, .card-content ol { padding-left: 20px; margin-bottom: 4px; }
   #quill-editor { height: 200px; background: white; margin-bottom: 14px; border-radius: 7px; }
+  #ck-quill-editor { height: 320px; background: white; margin-bottom: 14px; border-radius: 7px; }
+  .ck-tab-btn { padding: 7px 18px; font-size: 13px; font-weight: 600; border: none; background: none; cursor: pointer; color: #94a3b8; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+  .ck-tab-btn.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
+  .ck-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; cursor: pointer; background: white; transition: box-shadow 0.15s; }
+  .ck-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-color: #93c5fd; }
+  .ck-card-name { font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 4px; }
+  .ck-card-code { font-size: 11px; color: #64748b; margin-bottom: 6px; }
+  .ck-card-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+  .ck-badge { display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 10px; }
+  .ck-badge-bk { background: #dbeafe; color: #1d4ed8; }
+  .ck-badge-self { background: #fed7aa; color: #c2410c; }
+  .ck-badge-fiscal { background: #f1f5f9; color: #475569; }
+  .ck-card-users { font-size: 11px; color: #475569; }
+  .ck-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .ck-table th, .ck-table td { padding: 7px 8px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+  .ck-table th { background: #f8fafc; font-weight: 600; color: #475569; font-size: 12px; }
+  .ck-completed { opacity: 0.5; }
+  .home-schedule-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+  .home-schedule-row:hover { background: #f1f5f9; }
+  .home-schedule-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .card-video-link { display: inline-block; font-size: 13px; color: #2563eb; font-weight: 600; margin-bottom: 12px; }
   .card-actions { display: flex; gap: 8px; align-items: center; }
   .video-wrapper { position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; margin-top: 12px; }
@@ -356,6 +376,7 @@
       <div class="nav-item" id="nav-invoice-admin" style="display:none" onclick="showInvoiceAdmin()">📋 請求書管理</div>
       <div class="nav-item" id="nav-ar" style="display:none" onclick="showAr()">💰 売掛管理</div>
       <div class="nav-item" id="nav-forecast" style="display:none" onclick="showForecast()">📈 売上予測</div>
+      <div class="nav-item" id="nav-company-karte" onclick="showCompanyKarte()">🏢 会社カルテ</div>
       <div class="nav-item" id="nav-qa" onclick="showQA()">
         ❓ Q&A
         <span id="qa-badge" style="display:none; margin-left:auto; font-size:10px; background:#E24B4A; color:white; border-radius:10px; padding:1px 6px;"></span>
@@ -738,6 +759,120 @@
         <div style="font-size:11px;color:#999;margin-top:8px;">マスタデータをもとに自動計算</div>
       </div>
 
+      <!-- 会社カルテビュー -->
+      <div id="company-karte-view" style="display:none; padding:16px;">
+        <!-- 一覧画面 -->
+        <div id="ck-list-screen">
+          <div class="right-header" style="margin-bottom:12px;">
+            <div class="right-title">🏢 会社カルテ</div>
+            <span id="ck-count" style="font-size:12px; color:#64748b; margin-left:8px;"></span>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center; margin-bottom:14px; flex-wrap:wrap;">
+            <input id="ck-search" type="text" placeholder="会社名・会社CDで検索..." oninput="renderCompanyList()" style="flex:1; min-width:160px; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;" />
+            <select id="ck-filter-type" onchange="renderCompanyList()" style="padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
+              <option value="">すべて</option>
+              <option value="bookkeeping">記帳代行</option>
+              <option value="self">自計化</option>
+            </select>
+            <select id="ck-filter-user" onchange="renderCompanyList()" style="padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
+              <option value="">担当者: すべて</option>
+            </select>
+            <button class="btn btn-blue" onclick="openAddCompanyModal()">＋ 会社を追加</button>
+            <button class="btn btn-gray" onclick="openCompanyCsvModal()">📥 CSVインポート</button>
+            <button class="btn btn-gray" onclick="clearCompanyCache()">🔄 キャッシュ更新</button>
+          </div>
+          <div id="ck-list-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:10px;"></div>
+        </div>
+        <!-- カルテ画面 -->
+        <div id="ck-detail-screen" style="display:none;">
+          <button class="btn btn-gray" onclick="backToCompanyList()" style="margin-bottom:10px;">← 会社一覧に戻る</button>
+          <div id="ck-detail-header" style="margin-bottom:14px;"></div>
+          <div style="display:flex; gap:0; margin-bottom:12px; border-bottom:2px solid #e2e8f0;">
+            <button id="ck-tab-info" onclick="switchKarteTab('info')" class="ck-tab-btn">基本情報</button>
+            <button id="ck-tab-manual" onclick="switchKarteTab('manual')" class="ck-tab-btn">手順書</button>
+            <button id="ck-tab-schedule" onclick="switchKarteTab('schedule')" class="ck-tab-btn">スケジュール</button>
+            <button id="ck-tab-memo" onclick="switchKarteTab('memo')" class="ck-tab-btn">申し送り</button>
+          </div>
+          <div id="ck-tab-content"></div>
+        </div>
+      </div>
+
+      <!-- 会社追加モーダル -->
+      <div id="company-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+        <div style="background:white; border-radius:12px; padding:24px; max-width:500px; width:90%; max-height:90vh; overflow-y:auto;">
+          <div style="font-size:16px; font-weight:600; margin-bottom:16px;" id="company-modal-title">会社を追加</div>
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <label style="font-size:12px; color:#475569;">会社名 <span style="color:#E24B4A;">*</span>
+              <input id="cm-name" type="text" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; margin-top:3px;" />
+            </label>
+            <label style="font-size:12px; color:#475569;">会社CD
+              <input id="cm-code" type="text" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; margin-top:3px;" />
+            </label>
+            <label style="font-size:12px; color:#475569;">種別
+              <select id="cm-type" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; margin-top:3px;">
+                <option value="bookkeeping">記帳代行</option>
+                <option value="self">自計化</option>
+              </select>
+            </label>
+            <label style="font-size:12px; color:#475569;">決算月
+              <select id="cm-fiscal" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; margin-top:3px;">
+                <option value="0">未設定</option>
+                <option value="1">1月</option><option value="2">2月</option><option value="3">3月</option>
+                <option value="4">4月</option><option value="5">5月</option><option value="6">6月</option>
+                <option value="7">7月</option><option value="8">8月</option><option value="9">9月</option>
+                <option value="10">10月</option><option value="11">11月</option><option value="12">12月</option>
+              </select>
+            </label>
+            <label style="font-size:12px; color:#475569;">業種
+              <input id="cm-industry" type="text" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; margin-top:3px;" />
+            </label>
+            <div style="font-size:12px; color:#475569;">契約種別
+              <div id="cm-contract-types" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:5px;">
+                <label style="font-size:12px;"><input type="checkbox" value="記帳代行" /> 記帳代行</label>
+                <label style="font-size:12px;"><input type="checkbox" value="給与計算" /> 給与計算</label>
+                <label style="font-size:12px;"><input type="checkbox" value="申告" /> 申告</label>
+                <label style="font-size:12px;"><input type="checkbox" value="その他" /> その他</label>
+              </div>
+            </div>
+            <label style="font-size:12px; color:#475569;">
+              <input id="cm-freee" type="checkbox" /> freee連携あり
+            </label>
+            <div style="font-size:12px; color:#475569;">担当者
+              <div id="cm-assigned" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:5px; max-height:120px; overflow-y:auto; padding:8px; border:1px solid #e2e8f0; border-radius:6px;"></div>
+            </div>
+            <label style="font-size:12px; color:#475569;">特記事項
+              <textarea id="cm-notes" rows="3" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; margin-top:3px; resize:vertical;"></textarea>
+            </label>
+          </div>
+          <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+            <button class="btn btn-gray" onclick="closeCompanyModal()">キャンセル</button>
+            <button class="btn btn-blue" onclick="saveCompanyModal()">保存</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CSVインポートモーダル -->
+      <div id="company-csv-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+        <div style="background:white; border-radius:12px; padding:24px; max-width:500px; width:90%;">
+          <div style="font-size:16px; font-weight:600; margin-bottom:12px;">CSVインポート</div>
+          <pre style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:10px; font-size:11px; white-space:pre-wrap; line-height:1.5; margin-bottom:12px;">CSVフォーマット（1行目はヘッダー）：
+name,code,type,fiscal_month,industry,contract_types,freee_enabled,notes
+
+例：
+〇〇クリニック,101234,bookkeeping,1,医療（歯科）,記帳代行;給与計算,1,特記事項
+
+type: bookkeeping=記帳代行 / self=自計化
+contract_types: セミコロン区切りで複数指定可
+freee_enabled: 1=あり / 0=なし</pre>
+          <input type="file" id="company-csv-file" accept=".csv" style="margin-bottom:12px;" />
+          <div id="company-csv-result" style="font-size:12px; margin-bottom:12px;"></div>
+          <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <button class="btn btn-gray" onclick="closeCompanyCsvModal()">閉じる</button>
+            <button class="btn btn-blue" onclick="uploadCompanyCsv()">アップロード</button>
+          </div>
+        </div>
+      </div>
+
       <!-- ユーザー管理ビュー -->
       <div id="user-mgmt-view" style="display:none">
         <div class="right-header">
@@ -940,6 +1075,10 @@ function setView(mode) {
   document.getElementById('pledge-view').style.display = mode === 'pledge' ? 'block' : 'none';
   document.getElementById('ar-view').style.display = mode === 'ar' ? 'block' : 'none';
   document.getElementById('forecast-view').style.display = mode === 'forecast' ? 'block' : 'none';
+  const ckView = document.getElementById('company-karte-view');
+  if (ckView) ckView.style.display = mode === 'company-karte' ? 'block' : 'none';
+  const navCK = document.getElementById('nav-company-karte');
+  if (navCK) navCK.classList.toggle('active', mode === 'company-karte');
   document.getElementById('nav-home').classList.toggle('active', mode === 'home');
   document.getElementById('nav-qa').classList.toggle('active', mode === 'qa');
   document.getElementById('nav-report').classList.toggle('active', mode === 'report');
@@ -1224,6 +1363,10 @@ function renderHome() {
 
   el.innerHTML = `
     <div style="margin-bottom:24px">
+      <div class="home-section-title">📅 向こう2週間のスケジュール</div>
+      <div id="home-schedules"><div class="empty" style="padding:8px 0; color:#94a3b8;">読み込み中...</div></div>
+    </div>
+    <div style="margin-bottom:24px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div class="home-section-title" style="margin-bottom:0;border-bottom:none">📢 お知らせ</div>
         <button class="btn btn-gray" style="font-size:12px;padding:5px 10px" onclick="addNotice()">＋ 追加</button>
@@ -1236,6 +1379,8 @@ function renderHome() {
       <div class="home-section-title">🕐 最近の更新</div>
       ${updatesHtml}
     </div>`;
+  // 遅延取得：スケジュール
+  loadHomeSchedules();
 }
 
 function jumpToManual(catId, manualId) {
@@ -2894,7 +3039,7 @@ async function loadCompanies() {
     return JSON.parse(cached);
   }
   try {
-    const r = await fetch('/api/companies');
+    const r = await fetch('/api/companies/upstream');
     const data = await r.json();
     localStorage.setItem(cacheKey, JSON.stringify(data));
     localStorage.setItem(cacheTimeKey, Date.now().toString());
@@ -3740,6 +3885,610 @@ async function downloadForecastExcel() {
 document.getElementById('edit-overlay').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeModal();
 });
+
+// ===== 会社カルテ =====
+let _ckCompanies = [];
+let _ckUsers = [];
+let _ckCurrentCompanyId = null;
+let _ckCurrentSchedule = null;
+let _ckCurrentManual = null;
+let _ckCurrentTab = 'info';
+let _ckQuillInstance = null;
+let _ckEditMode = null;
+
+async function showCompanyKarte() {
+  setView('company-karte');
+  render();
+  document.getElementById('ck-list-screen').style.display = 'block';
+  document.getElementById('ck-detail-screen').style.display = 'none';
+  await loadCompanyKarteData();
+  renderCompanyList();
+}
+
+async function loadCompanyKarteData() {
+  try {
+    const [cRes, uRes] = await Promise.all([
+      fetch('/api/companies'),
+      fetch('/api/users')
+    ]);
+    const cData = await cRes.json();
+    const uData = await uRes.json();
+    _ckCompanies = (cData && cData.companies) || [];
+    _ckUsers = (uData && uData.users) || [];
+    populateUserFilter();
+  } catch (e) {
+    _ckCompanies = [];
+    _ckUsers = [];
+  }
+}
+
+function populateUserFilter() {
+  const sel = document.getElementById('ck-filter-user');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">担当者: すべて</option>' +
+    _ckUsers.map(u => `<option value="${esc(u.id)}">${esc(u.name)}</option>`).join('');
+  sel.value = current;
+}
+
+function renderCompanyList() {
+  const grid = document.getElementById('ck-list-grid');
+  if (!grid) return;
+  const q = (document.getElementById('ck-search')?.value || '').toLowerCase().trim();
+  const typeFilter = document.getElementById('ck-filter-type')?.value || '';
+  const userFilter = document.getElementById('ck-filter-user')?.value || '';
+  const userMap = {};
+  _ckUsers.forEach(u => { userMap[u.id] = u.name; });
+  const filtered = _ckCompanies.filter(c => {
+    if (q && !((c.name || '').toLowerCase().includes(q) || (c.code || '').toLowerCase().includes(q))) return false;
+    if (typeFilter && c.type !== typeFilter) return false;
+    if (userFilter && !((c.assigned_users || []).includes(userFilter))) return false;
+    return true;
+  });
+  document.getElementById('ck-count').textContent = `${filtered.length}社`;
+  if (filtered.length === 0) {
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1; padding:20px; text-align:center; color:#94a3b8;">該当する会社がありません</div>';
+    return;
+  }
+  grid.innerHTML = filtered.map(c => {
+    const typeBadge = c.type === 'self'
+      ? '<span class="ck-badge ck-badge-self">自計化</span>'
+      : '<span class="ck-badge ck-badge-bk">記帳代行</span>';
+    const fiscalBadge = c.fiscal_month ? `<span class="ck-badge ck-badge-fiscal">決算 ${c.fiscal_month}月</span>` : '';
+    const users = (c.assigned_users || []).map(uid => userMap[uid]).filter(Boolean).join('・');
+    return `
+      <div class="ck-card" onclick="showCompanyDetail('${c.id}')">
+        <div class="ck-card-name">${esc(c.name)}</div>
+        <div class="ck-card-code">${esc(c.code || '')}</div>
+        <div class="ck-card-badges">${typeBadge}${fiscalBadge}</div>
+        <div class="ck-card-users">${esc(users || '担当者未設定')}</div>
+      </div>`;
+  }).join('');
+}
+
+async function clearCompanyCache() {
+  await fetch('/api/companies/clear_cache', { method: 'POST' });
+  await loadCompanyKarteData();
+  renderCompanyList();
+}
+
+function openAddCompanyModal() {
+  _ckEditMode = null;
+  document.getElementById('company-modal-title').textContent = '会社を追加';
+  document.getElementById('cm-name').value = '';
+  document.getElementById('cm-code').value = '';
+  document.getElementById('cm-type').value = 'bookkeeping';
+  document.getElementById('cm-fiscal').value = '0';
+  document.getElementById('cm-industry').value = '';
+  document.getElementById('cm-notes').value = '';
+  document.getElementById('cm-freee').checked = false;
+  document.querySelectorAll('#cm-contract-types input').forEach(cb => { cb.checked = false; });
+  renderAssignedUsersChecks([]);
+  document.getElementById('company-modal').style.display = 'flex';
+}
+
+function renderAssignedUsersChecks(selectedIds) {
+  const box = document.getElementById('cm-assigned');
+  box.innerHTML = _ckUsers.map(u =>
+    `<label style="font-size:12px;"><input type="checkbox" value="${esc(u.id)}" ${selectedIds.includes(u.id) ? 'checked' : ''} /> ${esc(u.name)}</label>`
+  ).join('');
+}
+
+function closeCompanyModal() {
+  document.getElementById('company-modal').style.display = 'none';
+  _ckEditMode = null;
+}
+
+async function saveCompanyModal() {
+  const name = document.getElementById('cm-name').value.trim();
+  if (!name) { alert('会社名は必須です'); return; }
+  const body = {
+    name,
+    code: document.getElementById('cm-code').value.trim(),
+    type: document.getElementById('cm-type').value,
+    fiscal_month: parseInt(document.getElementById('cm-fiscal').value) || 0,
+    industry: document.getElementById('cm-industry').value.trim(),
+    contract_types: Array.from(document.querySelectorAll('#cm-contract-types input:checked')).map(cb => cb.value),
+    freee_enabled: document.getElementById('cm-freee').checked,
+    notes: document.getElementById('cm-notes').value,
+    assigned_users: Array.from(document.querySelectorAll('#cm-assigned input:checked')).map(cb => cb.value),
+  };
+  try {
+    if (_ckEditMode) {
+      await fetch('/api/companies/' + encodeURIComponent(_ckEditMode), {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+    } else {
+      await fetch('/api/companies', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+    }
+    closeCompanyModal();
+    await loadCompanyKarteData();
+    if (_ckEditMode && _ckCurrentCompanyId === _ckEditMode) {
+      renderKarteHeader();
+      if (_ckCurrentTab === 'info') renderInfoTab();
+    } else {
+      renderCompanyList();
+    }
+  } catch (e) {
+    alert('保存に失敗しました');
+  }
+}
+
+function openCompanyCsvModal() {
+  document.getElementById('company-csv-file').value = '';
+  document.getElementById('company-csv-result').innerHTML = '';
+  document.getElementById('company-csv-modal').style.display = 'flex';
+}
+
+function closeCompanyCsvModal() {
+  document.getElementById('company-csv-modal').style.display = 'none';
+}
+
+async function uploadCompanyCsv() {
+  const f = document.getElementById('company-csv-file').files[0];
+  if (!f) { alert('CSVファイルを選択してください'); return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  try {
+    const r = await fetch('/api/companies/import_csv', { method: 'POST', body: fd });
+    const data = await r.json();
+    document.getElementById('company-csv-result').innerHTML =
+      `追加: ${data.added}件 / 更新: ${data.updated}件` +
+      (data.errors && data.errors.length ? `<div style="color:#E24B4A;margin-top:6px;">エラー: ${data.errors.length}件<br>${data.errors.slice(0, 5).map(esc).join('<br>')}</div>` : '');
+    await loadCompanyKarteData();
+    renderCompanyList();
+  } catch (e) {
+    alert('アップロードに失敗しました');
+  }
+}
+
+// ----- カルテ画面 -----
+async function showCompanyDetail(companyId) {
+  _ckCurrentCompanyId = companyId;
+  document.getElementById('ck-list-screen').style.display = 'none';
+  document.getElementById('ck-detail-screen').style.display = 'block';
+  _ckCurrentTab = 'info';
+  await loadKarteData(companyId);
+  renderKarteHeader();
+  switchKarteTab('info');
+}
+
+function backToCompanyList() {
+  _ckCurrentCompanyId = null;
+  document.getElementById('ck-detail-screen').style.display = 'none';
+  document.getElementById('ck-list-screen').style.display = 'block';
+  renderCompanyList();
+}
+
+async function loadKarteData(companyId) {
+  try {
+    const [mRes, sRes] = await Promise.all([
+      fetch('/api/company_manuals/' + encodeURIComponent(companyId)),
+      fetch('/api/company_schedules/' + encodeURIComponent(companyId))
+    ]);
+    _ckCurrentManual = await mRes.json();
+    _ckCurrentSchedule = await sRes.json();
+  } catch (e) {
+    _ckCurrentManual = { content: '' };
+    _ckCurrentSchedule = { fixed_events: [], single_events: [], memos: [] };
+  }
+}
+
+function _ckCurrentCompany() {
+  return _ckCompanies.find(c => c.id === _ckCurrentCompanyId);
+}
+
+function renderKarteHeader() {
+  const c = _ckCurrentCompany();
+  if (!c) return;
+  const userMap = {};
+  _ckUsers.forEach(u => { userMap[u.id] = u.name; });
+  const typeBadge = c.type === 'self'
+    ? '<span class="ck-badge ck-badge-self">自計化</span>'
+    : '<span class="ck-badge ck-badge-bk">記帳代行</span>';
+  const fiscalBadge = c.fiscal_month ? `<span class="ck-badge ck-badge-fiscal">決算 ${c.fiscal_month}月</span>` : '';
+  const users = (c.assigned_users || []).map(uid => userMap[uid]).filter(Boolean).join('・');
+  document.getElementById('ck-detail-header').innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+      <div>
+        <div style="font-size:18px; font-weight:600; margin-bottom:4px;">${esc(c.name)}</div>
+        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+          ${typeBadge}${fiscalBadge}
+          <span style="font-size:12px; color:#64748b;">担当: ${esc(users || '未設定')}</span>
+        </div>
+      </div>
+      <button class="btn-text-red" onclick="deleteCompany()">この会社を削除</button>
+    </div>`;
+}
+
+function switchKarteTab(tab) {
+  _ckCurrentTab = tab;
+  ['info', 'manual', 'schedule', 'memo'].forEach(t => {
+    document.getElementById('ck-tab-' + t).classList.toggle('active', t === tab);
+  });
+  if (tab === 'info') renderInfoTab();
+  else if (tab === 'manual') renderManualTab();
+  else if (tab === 'schedule') renderScheduleTab();
+  else if (tab === 'memo') renderMemoTab();
+}
+
+function renderInfoTab() {
+  const c = _ckCurrentCompany();
+  if (!c) return;
+  const userMap = {};
+  _ckUsers.forEach(u => { userMap[u.id] = u.name; });
+  const users = (c.assigned_users || []).map(uid => userMap[uid]).filter(Boolean).join('・');
+  document.getElementById('ck-tab-content').innerHTML = `
+    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px; max-width:600px;">
+      <table style="width:100%; font-size:13px;">
+        <tr><th style="text-align:left; padding:6px; width:120px; color:#64748b;">会社CD</th><td style="padding:6px;">${esc(c.code || '')}</td></tr>
+        <tr><th style="text-align:left; padding:6px; color:#64748b;">業種</th><td style="padding:6px;">${esc(c.industry || '')}</td></tr>
+        <tr><th style="text-align:left; padding:6px; color:#64748b;">契約種別</th><td style="padding:6px;">${esc((c.contract_types || []).join('・'))}</td></tr>
+        <tr><th style="text-align:left; padding:6px; color:#64748b;">決算月</th><td style="padding:6px;">${c.fiscal_month ? c.fiscal_month + '月' : ''}</td></tr>
+        <tr><th style="text-align:left; padding:6px; color:#64748b;">freee連携</th><td style="padding:6px;">${c.freee_enabled ? 'あり' : 'なし'}</td></tr>
+        <tr><th style="text-align:left; padding:6px; color:#64748b;">担当者</th><td style="padding:6px;">${esc(users || '未設定')}</td></tr>
+        <tr><th style="text-align:left; padding:6px; color:#64748b; vertical-align:top;">特記事項</th><td style="padding:6px; white-space:pre-wrap;">${esc(c.notes || '')}</td></tr>
+      </table>
+      <div style="margin-top:12px;"><button class="btn btn-blue" onclick="editCurrentCompany()">編集</button></div>
+    </div>`;
+}
+
+function editCurrentCompany() {
+  const c = _ckCurrentCompany();
+  if (!c) return;
+  _ckEditMode = c.id;
+  document.getElementById('company-modal-title').textContent = '会社を編集';
+  document.getElementById('cm-name').value = c.name || '';
+  document.getElementById('cm-code').value = c.code || '';
+  document.getElementById('cm-type').value = c.type || 'bookkeeping';
+  document.getElementById('cm-fiscal').value = String(c.fiscal_month || 0);
+  document.getElementById('cm-industry').value = c.industry || '';
+  document.getElementById('cm-notes').value = c.notes || '';
+  document.getElementById('cm-freee').checked = !!c.freee_enabled;
+  const cts = c.contract_types || [];
+  document.querySelectorAll('#cm-contract-types input').forEach(cb => { cb.checked = cts.includes(cb.value); });
+  renderAssignedUsersChecks(c.assigned_users || []);
+  document.getElementById('company-modal').style.display = 'flex';
+}
+
+async function deleteCompany() {
+  const c = _ckCurrentCompany();
+  if (!c) return;
+  if (!confirm(`「${c.name}」を削除しますか？\n手順書・スケジュール・申し送りもすべて削除されます。`)) return;
+  await fetch('/api/companies/' + encodeURIComponent(c.id), { method: 'DELETE' });
+  await loadCompanyKarteData();
+  backToCompanyList();
+}
+
+function renderManualTab() {
+  const meta = _ckCurrentManual && _ckCurrentManual.updated_at
+    ? `最終更新: ${esc(_ckCurrentManual.updated_at.slice(0, 16).replace('T', ' '))}${_ckCurrentManual.updated_by ? ' / ' + esc(getUserName(_ckCurrentManual.updated_by)) : ''}`
+    : '未保存';
+  document.getElementById('ck-tab-content').innerHTML = `
+    <div style="font-size:11px; color:#64748b; margin-bottom:6px;">${meta}</div>
+    <div id="ck-quill-editor"></div>
+    <button class="btn btn-blue" onclick="saveCompanyManual()">保存</button>`;
+  _ckQuillInstance = new Quill('#ck-quill-editor', {
+    theme: 'snow',
+    modules: {
+      toolbar: [
+        [{ 'header': [1, 2, 3, false] }],
+        ['bold', 'italic', 'underline'],
+        [{ 'color': [] }, { 'background': [] }],
+        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+        [{ 'indent': '-1'}, { 'indent': '+1' }],
+        ['clean']
+      ]
+    }
+  });
+  _ckQuillInstance.root.innerHTML = (_ckCurrentManual && _ckCurrentManual.content) || '';
+}
+
+async function saveCompanyManual() {
+  if (!_ckQuillInstance || !_ckCurrentCompanyId) return;
+  const content = _ckQuillInstance.root.innerHTML;
+  const r = await fetch('/api/company_manuals/' + encodeURIComponent(_ckCurrentCompanyId), {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ content, user_id: _currentUser?.id })
+  });
+  if (r.ok) {
+    _ckCurrentManual = await r.json();
+    alert('保存しました');
+    renderManualTab();
+  } else {
+    alert('保存に失敗しました');
+  }
+}
+
+function getUserName(uid) {
+  return (_ckUsers.find(u => u.id === uid) || {}).name || uid;
+}
+
+function renderScheduleTab() {
+  const s = _ckCurrentSchedule || { fixed_events: [], single_events: [] };
+  const fixedRows = (s.fixed_events || []).map(ev => {
+    const dateStr = ev.recurrence === 'monthly' ? `毎月${ev.day_of_month}日` : `毎年${ev.month}月${ev.day}日`;
+    const recur = ev.recurrence === 'monthly' ? '毎月' : '毎年';
+    return `<tr>
+      <td>${esc(ev.name)}</td>
+      <td>${recur}</td>
+      <td>${dateStr}</td>
+      <td>${esc(ev.notes || '')}</td>
+      <td><button class="btn-sm" onclick="editFixedEvent('${ev.id}')">編集</button> <button class="btn-text-red" onclick="deleteFixedEvent('${ev.id}')">削除</button></td>
+    </tr>`;
+  }).join('');
+  const singleRows = (s.single_events || []).map(ev => {
+    const d = ev.date ? new Date(ev.date) : null;
+    const dateStr = d ? `${d.getMonth() + 1}/${d.getDate()} (${'日月火水木金土'[d.getDay()]})` : '';
+    const completedInfo = ev.completed
+      ? `✓ ${esc(getUserName(ev.completed_by || ''))} ${ev.completed_at ? esc(ev.completed_at.slice(5, 10)) : ''}`
+      : '';
+    return `<tr class="${ev.completed ? 'ck-completed' : ''}">
+      <td>${dateStr}</td>
+      <td>${esc(ev.name)}</td>
+      <td>${esc(ev.notes || '')} ${completedInfo}</td>
+      <td><input type="checkbox" ${ev.completed ? 'checked' : ''} onchange="toggleSingleComplete('${ev.id}')"></td>
+      <td>${ev.completed ? '' : `<button class="btn-sm" onclick="editSingleEvent('${ev.id}')">編集</button>`} <button class="btn-text-red" onclick="deleteSingleEvent('${ev.id}')">削除</button></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('ck-tab-content').innerHTML = `
+    <div style="margin-bottom:24px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <div style="font-size:14px; font-weight:600;">📌 固定イベント</div>
+        <button class="btn-sm" onclick="openFixedEventForm()">＋ 固定イベントを追加</button>
+      </div>
+      <div id="ck-fixed-form" style="display:none; background:#f0f7ff; border:1px solid #93c5fd; border-radius:8px; padding:10px; margin-bottom:10px;"></div>
+      <table class="ck-table">
+        <thead><tr><th>イベント名</th><th>繰り返し</th><th>日付</th><th>備考</th><th></th></tr></thead>
+        <tbody>${fixedRows || '<tr><td colspan="5" style="text-align:center; color:#94a3b8;">固定イベントはありません</td></tr>'}</tbody>
+      </table>
+    </div>
+    <div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <div style="font-size:14px; font-weight:600;">📅 単発イベント</div>
+        <button class="btn-sm" onclick="openSingleEventForm()">＋ 単発イベントを追加</button>
+      </div>
+      <div id="ck-single-form" style="display:none; background:#f0f7ff; border:1px solid #93c5fd; border-radius:8px; padding:10px; margin-bottom:10px;"></div>
+      <table class="ck-table">
+        <thead><tr><th>日付</th><th>イベント名</th><th>備考</th><th>完了</th><th></th></tr></thead>
+        <tbody>${singleRows || '<tr><td colspan="5" style="text-align:center; color:#94a3b8;">単発イベントはありません</td></tr>'}</tbody>
+      </table>
+    </div>`;
+}
+
+function openFixedEventForm(eventId) {
+  const ev = eventId ? (_ckCurrentSchedule.fixed_events || []).find(e => e.id === eventId) : null;
+  const recurrence = ev?.recurrence || 'monthly';
+  const box = document.getElementById('ck-fixed-form');
+  box.style.display = 'block';
+  box.innerHTML = `
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <input id="fe-name" type="text" placeholder="イベント名" value="${esc(ev?.name || '')}" style="flex:1; min-width:140px; padding:5px 8px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px;" />
+      <select id="fe-recurrence" onchange="toggleFixedFormFields()" style="padding:5px 8px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px;">
+        <option value="monthly" ${recurrence === 'monthly' ? 'selected' : ''}>毎月</option>
+        <option value="yearly" ${recurrence === 'yearly' ? 'selected' : ''}>毎年</option>
+      </select>
+      <span id="fe-monthly-fields" style="${recurrence === 'monthly' ? '' : 'display:none;'}">
+        <input id="fe-day-of-month" type="number" min="1" max="31" value="${ev?.day_of_month || 1}" style="width:60px; padding:5px 8px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px;" />日
+      </span>
+      <span id="fe-yearly-fields" style="${recurrence === 'yearly' ? '' : 'display:none;'}">
+        <input id="fe-month" type="number" min="1" max="12" value="${ev?.month || 1}" style="width:60px; padding:5px 8px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px;" />月
+        <input id="fe-day" type="number" min="1" max="31" value="${ev?.day || 1}" style="width:60px; padding:5px 8px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px;" />日
+      </span>
+      <input id="fe-notes" type="text" placeholder="備考" value="${esc(ev?.notes || '')}" style="flex:1; min-width:120px; padding:5px 8px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px;" />
+      <button class="btn btn-blue" onclick="saveFixedEvent('${ev?.id || ''}')">${ev ? '更新' : '追加'}</button>
+      <button class="btn btn-gray" onclick="closeFixedEventForm()">キャンセル</button>
+    </div>`;
+}
+
+function toggleFixedFormFields() {
+  const r = document.getElementById('fe-recurrence').value;
+  document.getElementById('fe-monthly-fields').style.display = r === 'monthly' ? '' : 'none';
+  document.getElementById('fe-yearly-fields').style.display = r === 'yearly' ? '' : 'none';
+}
+
+function closeFixedEventForm() {
+  document.getElementById('ck-fixed-form').style.display = 'none';
+}
+
+async function saveFixedEvent(eventId) {
+  const name = document.getElementById('fe-name').value.trim();
+  if (!name) { alert('イベント名は必須です'); return; }
+  const recurrence = document.getElementById('fe-recurrence').value;
+  const body = { name, recurrence, notes: document.getElementById('fe-notes').value };
+  if (recurrence === 'monthly') {
+    body.day_of_month = parseInt(document.getElementById('fe-day-of-month').value) || 1;
+  } else {
+    body.month = parseInt(document.getElementById('fe-month').value) || 1;
+    body.day = parseInt(document.getElementById('fe-day').value) || 1;
+  }
+  const url = '/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/fixed_events' + (eventId ? '/' + encodeURIComponent(eventId) : '');
+  const method = eventId ? 'PUT' : 'POST';
+  await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+  await loadKarteData(_ckCurrentCompanyId);
+  renderScheduleTab();
+}
+
+function editFixedEvent(eventId) { openFixedEventForm(eventId); }
+
+async function deleteFixedEvent(eventId) {
+  if (!confirm('この固定イベントを削除しますか？')) return;
+  await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/fixed_events/' + encodeURIComponent(eventId), { method: 'DELETE' });
+  await loadKarteData(_ckCurrentCompanyId);
+  renderScheduleTab();
+}
+
+function openSingleEventForm(eventId) {
+  const ev = eventId ? (_ckCurrentSchedule.single_events || []).find(e => e.id === eventId) : null;
+  const box = document.getElementById('ck-single-form');
+  box.style.display = 'block';
+  box.innerHTML = `
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <input id="se-date" type="date" value="${esc(ev?.date || today())}" style="padding:5px 8px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px;" />
+      <input id="se-name" type="text" placeholder="イベント名" value="${esc(ev?.name || '')}" style="flex:1; min-width:140px; padding:5px 8px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px;" />
+      <input id="se-notes" type="text" placeholder="備考" value="${esc(ev?.notes || '')}" style="flex:1; min-width:140px; padding:5px 8px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px;" />
+      <button class="btn btn-blue" onclick="saveSingleEvent('${ev?.id || ''}')">${ev ? '更新' : '追加'}</button>
+      <button class="btn btn-gray" onclick="closeSingleEventForm()">キャンセル</button>
+    </div>`;
+}
+
+function closeSingleEventForm() {
+  document.getElementById('ck-single-form').style.display = 'none';
+}
+
+async function saveSingleEvent(eventId) {
+  const name = document.getElementById('se-name').value.trim();
+  const dateVal = document.getElementById('se-date').value;
+  if (!name || !dateVal) { alert('日付・イベント名は必須です'); return; }
+  const body = { name, date: dateVal, notes: document.getElementById('se-notes').value };
+  const url = '/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/single_events' + (eventId ? '/' + encodeURIComponent(eventId) : '');
+  const method = eventId ? 'PUT' : 'POST';
+  await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+  await loadKarteData(_ckCurrentCompanyId);
+  renderScheduleTab();
+}
+
+function editSingleEvent(eventId) { openSingleEventForm(eventId); }
+
+async function deleteSingleEvent(eventId) {
+  if (!confirm('この単発イベントを削除しますか？')) return;
+  await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/single_events/' + encodeURIComponent(eventId), { method: 'DELETE' });
+  await loadKarteData(_ckCurrentCompanyId);
+  renderScheduleTab();
+}
+
+async function toggleSingleComplete(eventId) {
+  await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/single_events/' + encodeURIComponent(eventId) + '/complete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ user_id: _currentUser?.id })
+  });
+  await loadKarteData(_ckCurrentCompanyId);
+  renderScheduleTab();
+}
+
+function renderMemoTab() {
+  const memos = (_ckCurrentSchedule && _ckCurrentSchedule.memos) || [];
+  const rows = memos.map(m => {
+    const isMine = m.created_by === _currentUser?.id;
+    const dateLabel = m.created_at
+      ? new Date(m.created_at).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' })
+      : '';
+    return `<div style="border-bottom:1px solid #e2e8f0; padding:12px 0;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <div style="font-size:13px; color:#475569;"><span style="font-weight:600;">${esc(dateLabel)}</span>　${esc(getUserName(m.created_by || ''))}</div>
+        ${isMine ? `<button class="btn-text-red" onclick="deleteMemo('${m.id}')">削除</button>` : ''}
+      </div>
+      <div style="font-size:13px; white-space:pre-wrap;">${esc(m.text || '')}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('ck-tab-content').innerHTML = `
+    <div style="margin-bottom:14px;">
+      <button class="btn btn-blue" onclick="openMemoForm()">＋ メモを追加</button>
+    </div>
+    <div id="ck-memo-form" style="display:none; background:#f0f7ff; border:1px solid #93c5fd; border-radius:8px; padding:10px; margin-bottom:14px;"></div>
+    ${rows || '<div class="empty" style="padding:20px; text-align:center; color:#94a3b8;">申し送りはまだありません</div>'}`;
+}
+
+function openMemoForm() {
+  const box = document.getElementById('ck-memo-form');
+  box.style.display = 'block';
+  box.innerHTML = `
+    <textarea id="memo-text" rows="3" placeholder="メモ内容を入力..." style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:5px; font-size:13px; resize:vertical;"></textarea>
+    <div style="margin-top:8px; display:flex; gap:8px;">
+      <button class="btn btn-blue" onclick="saveMemo()">保存</button>
+      <button class="btn btn-gray" onclick="document.getElementById('ck-memo-form').style.display='none'">キャンセル</button>
+    </div>`;
+  document.getElementById('memo-text').focus();
+}
+
+async function saveMemo() {
+  const text = document.getElementById('memo-text').value.trim();
+  if (!text) return;
+  await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/memos', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ text, user_id: _currentUser?.id })
+  });
+  await loadKarteData(_ckCurrentCompanyId);
+  renderMemoTab();
+}
+
+async function deleteMemo(memoId) {
+  if (!confirm('このメモを削除しますか？')) return;
+  await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/memos/' + encodeURIComponent(memoId), { method: 'DELETE' });
+  await loadKarteData(_ckCurrentCompanyId);
+  renderMemoTab();
+}
+
+// ----- ホーム用スケジュール（遅延取得） -----
+async function loadHomeSchedules() {
+  const container = document.getElementById('home-schedules');
+  if (!container || !_currentUser?.id) return;
+  try {
+    const r = await fetch('/api/home/schedules?user_id=' + encodeURIComponent(_currentUser.id));
+    const data = await r.json();
+    const schedules = data.schedules || [];
+    if (schedules.length === 0) {
+      container.innerHTML = '<div class="empty" style="padding:8px 0; color:#94a3b8;">向こう2週間の予定はありません</div>';
+      return;
+    }
+    const wd = '日月火水木金土';
+    container.innerHTML = schedules.map(s => {
+      const d = new Date(s.date);
+      const dateStr = `${d.getMonth() + 1}/${d.getDate()} (${wd[d.getDay()]})`;
+      const color = s.event_type === 'single' ? '#2563eb'
+        : s.event_type === 'fixed_monthly' ? '#f97316' : '#16a34a';
+      return `<div class="home-schedule-row" onclick="jumpToKarteSchedule('${esc(s.company_id)}')">
+        <span class="home-schedule-dot" style="background:${color};"></span>
+        <span style="font-weight:600; min-width:80px;">${dateStr}</span>
+        <span style="color:#475569; min-width:140px;">${esc(s.company_name)}</span>
+        <span>${esc(s.name)}</span>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    container.innerHTML = '';
+  }
+}
+
+async function jumpToKarteSchedule(companyId) {
+  setView('company-karte');
+  render();
+  document.getElementById('ck-list-screen').style.display = 'none';
+  document.getElementById('ck-detail-screen').style.display = 'block';
+  if (_ckCompanies.length === 0) await loadCompanyKarteData();
+  _ckCurrentCompanyId = companyId;
+  await loadKarteData(companyId);
+  renderKarteHeader();
+  switchKarteTab('schedule');
+}
 </script>
 </body>
 </html>
