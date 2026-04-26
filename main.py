@@ -22,11 +22,11 @@ FREEE_COMPANY_ID = int(os.environ.get("FREEE_COMPANY_ID", "3254695"))
 _FREEE_CLIENT_ID     = os.environ.get("FREEE_CLIENT_ID", "")
 _FREEE_CLIENT_SECRET = os.environ.get("FREEE_CLIENT_SECRET", "")
 _FREEE_REFRESH_TOKEN = os.environ.get("FREEE_REFRESH_TOKEN", "")
-MANUALS_PATH  = "/400000_CC/shikonshosai/manuals.json"
-NOTICES_PATH  = "/400000_CC/shikonshosai/notices.json"
-QA_PATH       = "/400000_CC/shikonshosai/qa.json"
-USERS_PATH    = "/400000_CC/shikonshosai/users.json"
-IMAGES_BASE   = "/400000_CC/shikonshosai/manual_images"
+MANUALS_PATH  = "/外注先共有/400000_CC/shikonshosai/manuals.json"
+NOTICES_PATH  = "/外注先共有/400000_CC/shikonshosai/notices.json"
+QA_PATH       = "/外注先共有/400000_CC/shikonshosai/qa.json"
+USERS_PATH    = "/外注先共有/400000_CC/shikonshosai/users.json"
+IMAGES_BASE   = "/外注先共有/400000_CC/shikonshosai/manual_images"
 REPORTS_BASE  = "/外注先共有/400000_CC/shikonshosai/reports"
 def get_invoices_path(year_month: str) -> str:
     year = year_month.split("-")[0] if year_month else str(date.today().year)
