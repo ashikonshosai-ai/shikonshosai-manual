@@ -104,6 +104,9 @@
   .ck-completed { opacity: 0.5; }
   .home-schedule-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
   .home-schedule-row:hover { background: #f1f5f9; }
+  #home-schedules::-webkit-scrollbar { width: 4px; }
+  #home-schedules::-webkit-scrollbar-track { background: transparent; }
+  #home-schedules::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
   .home-schedule-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .card-video-link { display: inline-block; font-size: 13px; color: #2563eb; font-weight: 600; margin-bottom: 12px; }
   .card-actions { display: flex; gap: 8px; align-items: center; }
@@ -864,7 +867,6 @@
               <div id="cm-corp-only" style="display:none; margin-top:6px;">
                 <label style="font-size:12px; color:#475569; display:block;"><input id="cm-tax-extension" type="checkbox" /> 法人税申告期限延長</label>
                 <label style="font-size:12px; color:#475569; display:block;"><input id="cm-ct-extension" type="checkbox" /> 消費税申告期限延長</label>
-                <label style="font-size:12px; color:#475569; display:block;"><input id="cm-simplified-check" type="checkbox" /> 簡易課税判定対象</label>
               </div>
             </div>
 
@@ -1439,7 +1441,7 @@ function renderHome() {
   el.innerHTML = `
     <div style="margin-bottom:24px">
       <div class="home-section-title">📅 向こう2週間のスケジュール</div>
-      <div id="home-schedules"><div class="empty" style="padding:8px 0; color:#94a3b8;">読み込み中...</div></div>
+      <div id="home-schedules" style="max-height:280px; overflow-y:auto;"><div class="empty" style="padding:8px 0; color:#94a3b8;">読み込み中...</div></div>
     </div>
     <div style="margin-bottom:24px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -4097,7 +4099,6 @@ function fillCompanyAttrModal(c) {
   document.getElementById('cm-consumption-tax').value = c.consumption_tax || 'standard';
   document.getElementById('cm-tax-extension').checked = !!c.tax_extension;
   document.getElementById('cm-ct-extension').checked = !!c.consumption_tax_extension;
-  document.getElementById('cm-simplified-check').checked = !!c.simplified_tax_check;
   document.getElementById('cm-withholding').checked = !!c.withholding_tax;
   document.getElementById('cm-withholding-special').checked = !!c.withholding_special;
   document.getElementById('cm-payroll').checked = !!c.payroll;
@@ -4120,7 +4121,6 @@ function collectCompanyAttrModal() {
     consumption_tax: document.getElementById('cm-consumption-tax').value || null,
     tax_extension: entityType === 'corporation' && document.getElementById('cm-tax-extension').checked,
     consumption_tax_extension: entityType === 'corporation' && document.getElementById('cm-ct-extension').checked,
-    simplified_tax_check: entityType === 'corporation' && document.getElementById('cm-simplified-check').checked,
     withholding_tax: document.getElementById('cm-withholding').checked,
     withholding_special: document.getElementById('cm-withholding').checked && document.getElementById('cm-withholding-special').checked,
     payroll: document.getElementById('cm-payroll').checked,
@@ -4351,7 +4351,6 @@ function renderInfoTab() {
   const corpRows = isCorp ? `
         ${_yesNoRow('法人税申告期限延長', c.tax_extension)}
         ${_yesNoRow('消費税申告期限延長', c.consumption_tax_extension)}
-        ${_yesNoRow('簡易課税判定対象', c.simplified_tax_check)}
   ` : '';
 
   document.getElementById('ck-tab-content').innerHTML = `

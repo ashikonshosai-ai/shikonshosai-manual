@@ -1960,7 +1960,6 @@ def _generate_fixed_events(company: dict) -> list:
     withholding_special = bool(company.get("withholding_special"))
     payroll = bool(company.get("payroll"))
     payroll_day = int(company.get("payroll_day") or 25)
-    simplified_check = bool(company.get("simplified_tax_check"))
 
     def make_event(name, recurrence, **kwargs):
         ev = {"id": "fe" + uuid4().hex[:8], "name": name, "recurrence": recurrence, "notes": ""}
@@ -1976,16 +1975,13 @@ def _generate_fixed_events(company: dict) -> list:
             ct_offset = 5 if ct_extension else 2
             ct_month = _add_months(fiscal_month, ct_offset)
             events.append(make_event("消費税申告期限", "yearly", month=ct_month, day=_month_end_day(ct_month)))
-
-        if consumption_tax == "simplified" and simplified_check:
-            check_month = _add_months(fiscal_month, 1)
-            events.append(make_event("簡易課税判定", "yearly", month=check_month, day=_month_end_day(check_month)))
+            # 課税事業者は毎期判定が必要なため、決算月末に生成
+            events.append(make_event("簡易課税判定", "yearly", month=fiscal_month, day=_month_end_day(fiscal_month)))
 
     elif entity_type == "individual":
         events.append(make_event("所得税申告期限", "yearly", month=3, day=15))
         if consumption_tax in ("standard", "simplified"):
             events.append(make_event("消費税申告期限", "yearly", month=3, day=31))
-        if consumption_tax == "simplified" and simplified_check:
             events.append(make_event("簡易課税判定", "yearly", month=12, day=31))
 
     if withholding:
