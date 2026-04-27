@@ -8,7 +8,7 @@ from dropbox.exceptions import ApiError as DropboxApiError
 import gspread
 from google.oauth2.service_account import Credentials
 from fastapi import FastAPI, Request, UploadFile, File, Form, Query, Header, HTTPException, Response
-from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
@@ -23,6 +23,14 @@ FREEE_COMPANY_ID = int(os.environ.get("FREEE_COMPANY_ID", "3254695"))
 _FREEE_CLIENT_ID     = os.environ.get("FREEE_CLIENT_ID", "")
 _FREEE_CLIENT_SECRET = os.environ.get("FREEE_CLIENT_SECRET", "")
 _FREEE_REFRESH_TOKEN = os.environ.get("FREEE_REFRESH_TOKEN", "")
+_stored_refresh_token: str = ""
+_token_lock = None
+FREEE_AUTH_URL  = "https://accounts.secure.freee.co.jp/public_api/authorize"
+FREEE_TOKEN_URL = "https://accounts.secure.freee.co.jp/public_api/token"
+FREEE_REDIRECT_URI = os.environ.get(
+    "FREEE_REDIRECT_URI",
+    "https://shikonshosai-manual.onrender.com/auth/callback",
+)
 MANUALS_PATH  = "/外注先共有/400000_CC/shikonshosai/manuals.json"
 NOTICES_PATH  = "/外注先共有/400000_CC/shikonshosai/notices.json"
 QA_PATH       = "/外注先共有/400000_CC/shikonshosai/qa.json"
@@ -109,24 +117,77 @@ _freee_access_token: str = ""
 _freee_token_expires_at: float = 0.0
 
 async def _get_freee_token() -> str:
-    global _freee_access_token, _freee_token_expires_at
+    """
+    トークン取得：_stored_refresh_token（/auth/callback で更新）を優先し、
+    なければ環境変数 FREEE_REFRESH_TOKEN を使ってアクセストークンを更新する。
+    新しい refresh_token が返ってきたら _stored_refresh_token に保存する。
+    """
+    global _freee_access_token, _freee_token_expires_at, _stored_refresh_token, _token_lock
     if _freee_access_token and time.time() < _freee_token_expires_at - 60:
         return _freee_access_token
+    if _token_lock is None:
+        _token_lock = asyncio.Lock()
+    async with _token_lock:
+        if _freee_access_token and time.time() < _freee_token_expires_at - 60:
+            return _freee_access_token
+        refresh_token = _stored_refresh_token or _FREEE_REFRESH_TOKEN
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                FREEE_TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "client_id": _FREEE_CLIENT_ID,
+                    "client_secret": _FREEE_CLIENT_SECRET,
+                    "refresh_token": refresh_token,
+                }
+            )
+            r.raise_for_status()
+            td = r.json()
+            _freee_access_token = td["access_token"]
+            _freee_token_expires_at = time.time() + td.get("expires_in", 3600)
+            if "refresh_token" in td:
+                _stored_refresh_token = td["refresh_token"]
+            return _freee_access_token
+
+@app.get("/auth/login")
+async def freee_auth_login():
+    if not _FREEE_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="FREEE_CLIENT_ID 未設定")
+    url = (
+        f"{FREEE_AUTH_URL}"
+        f"?client_id={_FREEE_CLIENT_ID}"
+        f"&redirect_uri={FREEE_REDIRECT_URI}"
+        f"&response_type=code"
+    )
+    return RedirectResponse(url)
+
+@app.get("/auth/callback")
+async def freee_auth_callback(code: str = Query(...)):
+    global _stored_refresh_token, _freee_access_token, _freee_token_expires_at
+    if not _FREEE_CLIENT_ID or not _FREEE_CLIENT_SECRET:
+        raise HTTPException(status_code=500, detail="FREEE_CLIENT_ID/SECRET 未設定")
     async with httpx.AsyncClient() as client:
-        r = await client.post(
-            "https://accounts.secure.freee.co.jp/public_api/token",
+        resp = await client.post(
+            FREEE_TOKEN_URL,
             data={
-                "grant_type": "refresh_token",
+                "grant_type": "authorization_code",
                 "client_id": _FREEE_CLIENT_ID,
                 "client_secret": _FREEE_CLIENT_SECRET,
-                "refresh_token": _FREEE_REFRESH_TOKEN,
+                "code": code,
+                "redirect_uri": FREEE_REDIRECT_URI,
             }
         )
-        r.raise_for_status()
-        td = r.json()
-        _freee_access_token = td["access_token"]
-        _freee_token_expires_at = time.time() + td.get("expires_in", 3600)
-        return _freee_access_token
+        resp.raise_for_status()
+        tokens = resp.json()
+    _stored_refresh_token = tokens["refresh_token"]
+    _freee_access_token = tokens["access_token"]
+    _freee_token_expires_at = time.time() + tokens.get("expires_in", 3600)
+    return HTMLResponse(
+        "<html><body style='font-family:sans-serif;padding:40px;text-align:center;'>"
+        "<h2>freee 認証完了</h2>"
+        "<p>このタブを閉じてください。</p>"
+        "</body></html>"
+    )
 
 @app.get("/api/manuals")
 async def get_manuals():
