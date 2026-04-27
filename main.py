@@ -1960,8 +1960,6 @@ def _generate_fixed_events(company: dict) -> list:
     withholding_special = bool(company.get("withholding_special"))
     payroll = bool(company.get("payroll"))
     payroll_day = int(company.get("payroll_day") or 25)
-    mtg = bool(company.get("mtg"))
-    mtg_day = int(company.get("mtg_day") or 28)
     simplified_check = bool(company.get("simplified_tax_check"))
 
     def make_event(name, recurrence, **kwargs):
@@ -1999,9 +1997,6 @@ def _generate_fixed_events(company: dict) -> list:
 
     if payroll:
         events.append(make_event("給与計算チェック", "monthly", day_of_month=max(1, min(31, payroll_day))))
-
-    if mtg:
-        events.append(make_event("月次MTG", "monthly", day_of_month=max(1, min(31, mtg_day))))
 
     return events
 
@@ -2434,7 +2429,6 @@ async def get_home_schedules(user_id: str = Query(...)):
     companies_data = await dropbox_get(COMPANIES_PATH) or {"companies": []}
     today = date.today()
     end = today + timedelta(days=14)
-    past_limit = today - timedelta(days=14)
     results = []
     for c in companies_data.get("companies", []):
         if user_id not in (c.get("assigned_users") or []):
@@ -2448,31 +2442,17 @@ async def get_home_schedules(user_id: str = Query(...)):
                 d = date.fromisoformat(d_str)
             except (ValueError, TypeError):
                 continue
-            include = False
-            if not ev.get("completed"):
-                if today <= d <= end:
-                    include = True
-            else:
-                completed_at = ev.get("completed_at") or ""
-                try:
-                    cd = date.fromisoformat(completed_at[:10]) if completed_at else None
-                except ValueError:
-                    cd = None
-                if cd and cd >= past_limit:
-                    include = True
-            if include:
-                results.append({
-                    "date": d.isoformat(),
-                    "company_id": cid,
-                    "company_name": cname,
-                    "event_id": ev.get("id"),
-                    "event_type": "single",
-                    "name": ev.get("name", ""),
-                    "notes": ev.get("notes", ""),
-                    "completed": bool(ev.get("completed")),
-                    "completed_by": ev.get("completed_by"),
-                    "completed_at": ev.get("completed_at"),
-                })
+            if not (today <= d <= end):
+                continue
+            results.append({
+                "date": d.isoformat(),
+                "company_id": cid,
+                "company_name": cname,
+                "event_id": ev.get("id"),
+                "event_type": "single",
+                "name": ev.get("name", ""),
+                "notes": ev.get("notes", ""),
+            })
         for ev in sched.get("fixed_events", []):
             recurrence = ev.get("recurrence", "monthly")
             if recurrence == "monthly":
@@ -2502,7 +2482,6 @@ async def get_home_schedules(user_id: str = Query(...)):
                             "event_type": "fixed_monthly",
                             "name": ev.get("name", ""),
                             "notes": ev.get("notes", ""),
-                            "completed": False,
                         })
             else:
                 m = int(ev.get("month") or 0)
@@ -2524,7 +2503,6 @@ async def get_home_schedules(user_id: str = Query(...)):
                             "event_type": "fixed_yearly",
                             "name": ev.get("name", ""),
                             "notes": ev.get("notes", ""),
-                            "completed": False,
                         })
     results.sort(key=lambda r: (r["date"], r["company_name"]))
     return {"schedules": results}

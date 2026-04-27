@@ -879,14 +879,6 @@
             </div>
 
             <div>
-              <div style="font-size:12px; color:#475569; font-weight:600; margin-bottom:6px;">MTG</div>
-              <label style="font-size:12px; color:#475569; display:block;"><input id="cm-mtg" type="checkbox" onchange="updateCompanyAttrUI()" /> 月次MTGあり</label>
-              <label id="cm-mtg-day-wrap" style="font-size:12px; color:#475569; display:none; margin-left:18px;">MTG実施日：毎月
-                <input id="cm-mtg-day" type="number" min="1" max="31" value="28" style="width:60px; padding:4px 6px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px;" /> 日
-              </label>
-            </div>
-
-            <div>
               <div style="font-size:12px; color:#475569; font-weight:600; margin-bottom:6px;">届出書</div>
               <label style="font-size:12px; color:#475569; display:block;"><input id="cm-notification-filing" type="checkbox" /> 届出書管理あり</label>
             </div>
@@ -4043,7 +4035,7 @@ function renderCompanyList() {
   const typeFilter = document.getElementById('ck-filter-type')?.value || '';
   const userFilter = document.getElementById('ck-filter-user')?.value || '';
   const userMap = {};
-  _ckUsers.forEach(u => { userMap[u.id] = u.name; });
+  _ckUsers.forEach(u => { userMap[u.id] = formatUserName(u.name); });
   const filtered = _ckCompanies.filter(c => {
     if (q && !((c.name || '').toLowerCase().includes(q) || (c.code || '').toLowerCase().includes(q))) return false;
     if (typeFilter && c.type !== typeFilter) return false;
@@ -4110,8 +4102,6 @@ function fillCompanyAttrModal(c) {
   document.getElementById('cm-withholding-special').checked = !!c.withholding_special;
   document.getElementById('cm-payroll').checked = !!c.payroll;
   document.getElementById('cm-payroll-day').value = c.payroll_day || 25;
-  document.getElementById('cm-mtg').checked = !!c.mtg;
-  document.getElementById('cm-mtg-day').value = c.mtg_day || 28;
   document.getElementById('cm-notification-filing').checked = !!c.notification_filing;
   updateCompanyAttrUI();
 }
@@ -4121,7 +4111,6 @@ function updateCompanyAttrUI() {
   document.getElementById('cm-corp-only').style.display = isCorp ? 'block' : 'none';
   document.getElementById('cm-withholding-special-wrap').style.display = document.getElementById('cm-withholding').checked ? 'block' : 'none';
   document.getElementById('cm-payroll-day-wrap').style.display = document.getElementById('cm-payroll').checked ? 'block' : 'none';
-  document.getElementById('cm-mtg-day-wrap').style.display = document.getElementById('cm-mtg').checked ? 'block' : 'none';
 }
 
 function collectCompanyAttrModal() {
@@ -4136,8 +4125,6 @@ function collectCompanyAttrModal() {
     withholding_special: document.getElementById('cm-withholding').checked && document.getElementById('cm-withholding-special').checked,
     payroll: document.getElementById('cm-payroll').checked,
     payroll_day: parseInt(document.getElementById('cm-payroll-day').value) || 25,
-    mtg: document.getElementById('cm-mtg').checked,
-    mtg_day: parseInt(document.getElementById('cm-mtg-day').value) || 28,
     notification_filing: document.getElementById('cm-notification-filing').checked,
   };
 }
@@ -4300,7 +4287,7 @@ function renderKarteHeader() {
   const c = _ckCurrentCompany();
   if (!c) return;
   const userMap = {};
-  _ckUsers.forEach(u => { userMap[u.id] = u.name; });
+  _ckUsers.forEach(u => { userMap[u.id] = formatUserName(u.name); });
   const typeBadge = c.type === 'self'
     ? '<span class="ck-badge ck-badge-self">自計化</span>'
     : '<span class="ck-badge ck-badge-bk">記帳代行</span>';
@@ -4331,17 +4318,46 @@ function switchKarteTab(tab) {
   else if (tab === 'memo') renderMemoTab();
 }
 
+function _yesNoRow(label, value) {
+  const v = value == null ? '未設定' : (value ? 'あり' : 'なし');
+  return `<tr><th style="text-align:left; padding:6px; width:140px; color:#64748b;">${label}</th><td style="padding:6px;">${v}</td></tr>`;
+}
+function _entityTypeLabel(v) {
+  if (v === 'corporation') return '法人';
+  if (v === 'individual') return '個人';
+  return '未設定';
+}
+function _consumptionTaxLabel(v) {
+  if (v === 'standard') return '課税（本則）';
+  if (v === 'simplified') return '課税（簡易）';
+  if (v === 'exempt') return '免税';
+  return '未設定';
+}
+
 function renderInfoTab() {
   const c = _ckCurrentCompany();
   if (!c) return;
   const userMap = {};
-  _ckUsers.forEach(u => { userMap[u.id] = u.name; });
+  _ckUsers.forEach(u => { userMap[u.id] = formatUserName(u.name); });
   const users = (c.assigned_users || []).map(uid => userMap[uid]).filter(Boolean).join('・');
   const editable = canEditKarte(c);
+  const isCorp = c.entity_type === 'corporation';
+  const withholdingRow = c.withholding_tax
+    ? _yesNoRow('源泉納期特例', c.withholding_special)
+    : '';
+  const payrollDayRow = c.payroll
+    ? `<tr><th style="text-align:left; padding:6px; color:#64748b;">給与計算基準日</th><td style="padding:6px;">${c.payroll_day ? '毎月' + c.payroll_day + '日' : '未設定'}</td></tr>`
+    : '';
+  const corpRows = isCorp ? `
+        ${_yesNoRow('法人税申告期限延長', c.tax_extension)}
+        ${_yesNoRow('消費税申告期限延長', c.consumption_tax_extension)}
+        ${_yesNoRow('簡易課税判定対象', c.simplified_tax_check)}
+  ` : '';
+
   document.getElementById('ck-tab-content').innerHTML = `
     <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px; max-width:600px;">
       <table style="width:100%; font-size:13px;">
-        <tr><th style="text-align:left; padding:6px; width:120px; color:#64748b;">会社CD</th><td style="padding:6px;">${esc(c.code || '')}</td></tr>
+        <tr><th style="text-align:left; padding:6px; width:140px; color:#64748b;">会社CD</th><td style="padding:6px;">${esc(c.code || '')}</td></tr>
         <tr><th style="text-align:left; padding:6px; color:#64748b;">業種</th><td style="padding:6px;">${esc(c.industry || '')}</td></tr>
         <tr><th style="text-align:left; padding:6px; color:#64748b;">契約種別</th><td style="padding:6px;">${esc((c.contract_types || []).join('・'))}</td></tr>
         <tr><th style="text-align:left; padding:6px; color:#64748b;">決算月</th><td style="padding:6px;">${c.fiscal_month ? c.fiscal_month + '月' : ''}</td></tr>
@@ -4349,7 +4365,24 @@ function renderInfoTab() {
         <tr><th style="text-align:left; padding:6px; color:#64748b;">担当者</th><td style="padding:6px;">${esc(users || '未設定')}</td></tr>
         <tr><th style="text-align:left; padding:6px; color:#64748b; vertical-align:top;">特記事項</th><td style="padding:6px; white-space:pre-wrap;">${esc(c.notes || '')}</td></tr>
       </table>
-      ${editable ? '<div style="margin-top:12px;"><button class="btn btn-blue" onclick="editCurrentCompany()">編集</button></div>' : ''}
+      <div style="font-size:12px; color:#475569; font-weight:600; margin:14px 0 4px;">区分・申告</div>
+      <table style="width:100%; font-size:13px;">
+        <tr><th style="text-align:left; padding:6px; width:140px; color:#64748b;">法人・個人区分</th><td style="padding:6px;">${_entityTypeLabel(c.entity_type)}</td></tr>
+        <tr><th style="text-align:left; padding:6px; color:#64748b;">消費税区分</th><td style="padding:6px;">${_consumptionTaxLabel(c.consumption_tax)}</td></tr>
+        ${corpRows}
+      </table>
+      <div style="font-size:12px; color:#475569; font-weight:600; margin:14px 0 4px;">源泉・給与</div>
+      <table style="width:100%; font-size:13px;">
+        ${_yesNoRow('源泉納付', c.withholding_tax)}
+        ${withholdingRow}
+        ${_yesNoRow('給与計算', c.payroll)}
+        ${payrollDayRow}
+      </table>
+      <div style="font-size:12px; color:#475569; font-weight:600; margin:14px 0 4px;">届出書</div>
+      <table style="width:100%; font-size:13px;">
+        ${_yesNoRow('届出書管理', c.notification_filing)}
+      </table>
+      ${editable ? '<div style="margin-top:14px;"><button class="btn btn-blue" onclick="editCurrentCompany()">編集</button></div>' : ''}
     </div>`;
 }
 
@@ -4437,8 +4470,13 @@ async function saveCompanyManual(btn) {
   }
 }
 
+function formatUserName(name) {
+  return (name || '').replace(/[\s　]/g, '');
+}
+
 function getUserName(uid) {
-  return (_ckUsers.find(u => u.id === uid) || {}).name || uid;
+  const raw = (_ckUsers.find(u => u.id === uid) || {}).name || uid;
+  return formatUserName(raw);
 }
 
 function canEditKarte(company) {
@@ -4447,19 +4485,6 @@ function canEditKarte(company) {
   if (!company) return false;
   if ((company.assigned_users || []).includes(_currentUser.id)) return true;
   return false;
-}
-
-function _isSingleEventVisible(ev) {
-  // 完了から14日経過したものは非表示。それ以外は常に表示。
-  if (!ev.completed) return true;
-  if (!ev.completed_at) return true;
-  const completed = new Date(ev.completed_at);
-  if (isNaN(completed.getTime())) return true;
-  const limit = new Date(completed);
-  limit.setDate(limit.getDate() + 14);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return today <= limit;
 }
 
 function renderScheduleTab() {
@@ -4480,27 +4505,17 @@ function renderScheduleTab() {
       <td>${actions}</td>
     </tr>`;
   }).join('');
-  const visibleSingles = (s.single_events || []).filter(_isSingleEventVisible);
-  // 未完了を上、完了済みを下、それぞれ日付順
-  visibleSingles.sort((a, b) => {
-    if (!!a.completed !== !!b.completed) return a.completed ? 1 : -1;
-    return (a.date || '').localeCompare(b.date || '');
-  });
-  const singleRows = visibleSingles.map(ev => {
+  const singles = (s.single_events || []).slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const singleRows = singles.map(ev => {
     const d = ev.date ? new Date(ev.date) : null;
     const dateStr = d ? `${d.getMonth() + 1}/${d.getDate()} (${'日月火水木金土'[d.getDay()]})` : '';
-    const completedInfo = ev.completed
-      ? `✓ ${esc(getUserName(ev.completed_by || ''))} ${ev.completed_at ? esc(ev.completed_at.slice(5, 10)) : ''}`
-      : '';
-    const opacity = ev.completed ? 'opacity:0.4;' : '';
     const actions = editable
-      ? `${ev.completed ? '' : `<button class="btn-sm" onclick="editSingleEvent('${ev.id}')">編集</button>`} <button class="btn-text-red" onclick="deleteSingleEvent('${ev.id}')">削除</button>`
+      ? `<button class="btn-sm" onclick="editSingleEvent('${ev.id}')">編集</button> <button class="btn-text-red" onclick="deleteSingleEvent('${ev.id}')">削除</button>`
       : '';
-    return `<tr style="${opacity}">
+    return `<tr>
       <td>${dateStr}</td>
       <td>${esc(ev.name)}</td>
-      <td>${esc(ev.notes || '')} ${completedInfo}</td>
-      <td><input type="checkbox" ${ev.completed ? 'checked' : ''} onchange="toggleSingleComplete('${ev.id}')"></td>
+      <td>${esc(ev.notes || '')}</td>
       <td>${actions}</td>
     </tr>`;
   }).join('');
@@ -4526,8 +4541,8 @@ function renderScheduleTab() {
       </div>
       <div id="ck-single-form" style="display:none; background:#f0f7ff; border:1px solid #93c5fd; border-radius:8px; padding:10px; margin-bottom:10px;"></div>
       <table class="ck-table">
-        <thead><tr><th>日付</th><th>イベント名</th><th>備考</th><th>完了</th><th></th></tr></thead>
-        <tbody>${singleRows || '<tr><td colspan="5" style="text-align:center; color:#94a3b8;">単発イベントはありません</td></tr>'}</tbody>
+        <thead><tr><th>日付</th><th>イベント名</th><th>備考</th><th></th></tr></thead>
+        <tbody>${singleRows || '<tr><td colspan="4" style="text-align:center; color:#94a3b8;">単発イベントはありません</td></tr>'}</tbody>
       </table>
     </div>`;
 }
@@ -4690,23 +4705,6 @@ async function deleteSingleEvent(eventId) {
   }
 }
 
-async function toggleSingleComplete(eventId) {
-  try {
-    const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/single_events/' + encodeURIComponent(eventId) + '/complete', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ user_id: _currentUser?.id })
-    });
-    if (!r.ok) throw new Error('http ' + r.status);
-    await loadKarteData(_ckCurrentCompanyId);
-    renderScheduleTab();
-    localStorage.removeItem(HOME_SCHEDULES_CACHE_KEY);
-  } catch (e) {
-    showToast('更新に失敗しました', 'error');
-    renderScheduleTab();
-  }
-}
-
 function renderMemoTab() {
   const memos = (_ckCurrentSchedule && _ckCurrentSchedule.memos) || [];
   const c = _ckCurrentCompany();
@@ -4825,47 +4823,17 @@ function renderHomeSchedules(schedules) {
     container.innerHTML = '<div class="empty" style="padding:8px 0; color:#94a3b8;">向こう2週間の予定はありません</div>';
     return;
   }
-  const sorted = [
-    ...schedules.filter(s => !s.completed),
-    ...schedules.filter(s => s.completed),
-  ];
+  const sorted = schedules.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   container.innerHTML = '';
   sorted.forEach(s => {
     const row = document.createElement('div');
-    row.style.cssText = `display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid #e2e8f0;opacity:${s.completed ? 0.4 : 1};`;
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid #e2e8f0;cursor:pointer;';
 
-    if (s.event_type === 'single') {
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = !!s.completed;
-      cb.style.cssText = 'width:15px;height:15px;cursor:pointer;flex-shrink:0;';
-      cb.addEventListener('click', e => e.stopPropagation());
-      cb.addEventListener('change', async () => {
-        const wasChecked = cb.checked;
-        // optimistic update
-        row.style.opacity = wasChecked ? '0.4' : '1';
-        try {
-          const r = await fetch(`/api/company_schedules/${encodeURIComponent(s.company_id)}/single_events/${encodeURIComponent(s.event_id)}/complete`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: _currentUser?.id })
-          });
-          if (!r.ok) throw new Error('http ' + r.status);
-          s.completed = wasChecked;
-          // キャッシュを削除して次回再取得
-          localStorage.removeItem(HOME_SCHEDULES_CACHE_KEY);
-        } catch (err) {
-          cb.checked = !wasChecked;
-          row.style.opacity = !wasChecked ? '0.4' : '1';
-          showToast('更新に失敗しました', 'error');
-        }
-      });
-      row.appendChild(cb);
-    } else {
-      const dot = document.createElement('div');
-      dot.style.cssText = `width:6px;height:6px;border-radius:50%;flex-shrink:0;margin:0 4px 0 5px;background:${s.event_type === 'fixed_monthly' ? '#EF9F27' : '#1D9E75'};`;
-      row.appendChild(dot);
-    }
+    const dotColor = s.event_type === 'single' ? '#2563eb'
+      : s.event_type === 'fixed_monthly' ? '#EF9F27' : '#1D9E75';
+    const dot = document.createElement('div');
+    dot.style.cssText = `width:6px;height:6px;border-radius:50%;flex-shrink:0;margin:0 4px 0 5px;background:${dotColor};`;
+    row.appendChild(dot);
 
     const dateEl = document.createElement('span');
     dateEl.style.cssText = 'font-size:12px;color:#64748b;min-width:72px;flex-shrink:0;font-weight:600;';
@@ -4879,14 +4847,10 @@ function renderHomeSchedules(schedules) {
     nameEl.style.cssText = 'font-size:13px;color:#0f172a;flex:1;';
     nameEl.textContent = s.name || '';
 
-    [dateEl, companyEl, nameEl].forEach(el => {
-      el.style.cursor = 'pointer';
-      el.addEventListener('click', () => showCompanyKarteDetail(s.company_id, 'schedule'));
-    });
-
     row.appendChild(dateEl);
     row.appendChild(companyEl);
     row.appendChild(nameEl);
+    row.addEventListener('click', () => showCompanyKarteDetail(s.company_id, 'schedule'));
     container.appendChild(row);
   });
 }
