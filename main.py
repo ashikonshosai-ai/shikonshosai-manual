@@ -1898,6 +1898,113 @@ def _company_schedule_path(company_id: str) -> str:
 def _now_iso() -> str:
     return datetime.now().isoformat()
 
+# 会社カルテの業務属性フィールド（型ごとに分類）
+_KARTE_ATTR_BOOL_FIELDS = (
+    "tax_extension", "consumption_tax_extension",
+    "withholding_tax", "withholding_special",
+    "payroll", "mtg",
+    "simplified_tax_check", "notification_filing",
+)
+_KARTE_ATTR_STR_FIELDS = ("entity_type", "consumption_tax")
+_KARTE_ATTR_INT_FIELDS = ("payroll_day", "mtg_day")
+_KARTE_ATTR_FIELDS = _KARTE_ATTR_BOOL_FIELDS + _KARTE_ATTR_STR_FIELDS + _KARTE_ATTR_INT_FIELDS
+
+def _coerce_attr_value(field: str, value):
+    if field in _KARTE_ATTR_BOOL_FIELDS:
+        return bool(value)
+    if field in _KARTE_ATTR_STR_FIELDS:
+        return value if value else None
+    if field in _KARTE_ATTR_INT_FIELDS:
+        try:
+            return int(value) if value not in (None, "", False) else None
+        except (TypeError, ValueError):
+            return None
+    return value
+
+def _csv_attr_value(field: str, raw: str):
+    """CSVの文字列セルから属性値を生成。空欄は None / False。"""
+    s = (raw or "").strip()
+    if field in _KARTE_ATTR_BOOL_FIELDS:
+        return s == "1"
+    if field in _KARTE_ATTR_STR_FIELDS:
+        return s or None
+    if field in _KARTE_ATTR_INT_FIELDS:
+        if not s:
+            return None
+        try:
+            return int(s)
+        except ValueError:
+            return None
+    return s
+
+def _add_months(month: int, n: int) -> int:
+    """1〜12 の範囲で月を加算"""
+    return (month + n - 1) % 12 + 1
+
+def _month_end_day(month: int) -> int:
+    if month in (1, 3, 5, 7, 8, 10, 12):
+        return 31
+    if month in (4, 6, 9, 11):
+        return 30
+    return 28  # 2月（うるう年は別途扱わない）
+
+def _generate_fixed_events(company: dict) -> list:
+    """会社属性から固定イベントリストを生成する"""
+    events = []
+    fiscal_month = int(company.get("fiscal_month") or 0) or 3
+    entity_type = company.get("entity_type") or "corporation"
+    tax_extension = bool(company.get("tax_extension"))
+    ct_extension = bool(company.get("consumption_tax_extension"))
+    consumption_tax = company.get("consumption_tax") or "exempt"
+    withholding = bool(company.get("withholding_tax"))
+    withholding_special = bool(company.get("withholding_special"))
+    payroll = bool(company.get("payroll"))
+    payroll_day = int(company.get("payroll_day") or 25)
+    mtg = bool(company.get("mtg"))
+    mtg_day = int(company.get("mtg_day") or 28)
+    simplified_check = bool(company.get("simplified_tax_check"))
+
+    def make_event(name, recurrence, **kwargs):
+        ev = {"id": "fe" + uuid4().hex[:8], "name": name, "recurrence": recurrence, "notes": ""}
+        ev.update(kwargs)
+        return ev
+
+    if entity_type == "corporation":
+        tax_offset = 3 if tax_extension else 2
+        tax_month = _add_months(fiscal_month, tax_offset)
+        events.append(make_event("法人税申告期限", "yearly", month=tax_month, day=_month_end_day(tax_month)))
+
+        if consumption_tax in ("standard", "simplified"):
+            ct_offset = 5 if ct_extension else 2
+            ct_month = _add_months(fiscal_month, ct_offset)
+            events.append(make_event("消費税申告期限", "yearly", month=ct_month, day=_month_end_day(ct_month)))
+
+        if consumption_tax == "simplified" and simplified_check:
+            check_month = _add_months(fiscal_month, 1)
+            events.append(make_event("簡易課税判定", "yearly", month=check_month, day=_month_end_day(check_month)))
+
+    elif entity_type == "individual":
+        events.append(make_event("所得税申告期限", "yearly", month=3, day=15))
+        if consumption_tax in ("standard", "simplified"):
+            events.append(make_event("消費税申告期限", "yearly", month=3, day=31))
+        if consumption_tax == "simplified" and simplified_check:
+            events.append(make_event("簡易課税判定", "yearly", month=12, day=31))
+
+    if withholding:
+        if withholding_special:
+            events.append(make_event("源泉納付（1〜6月分）", "yearly", month=7, day=10))
+            events.append(make_event("源泉納付（7〜12月分）", "yearly", month=1, day=20))
+        else:
+            events.append(make_event("源泉納付", "monthly", day_of_month=10))
+
+    if payroll:
+        events.append(make_event("給与計算チェック", "monthly", day_of_month=max(1, min(31, payroll_day))))
+
+    if mtg:
+        events.append(make_event("月次MTG", "monthly", day_of_month=max(1, min(31, mtg_day))))
+
+    return events
+
 async def _check_karte_edit_permission(user_id: str, company: dict) -> bool:
     """admin/leaderまたは担当者であればTrueを返す"""
     if not user_id:
@@ -1955,6 +2062,8 @@ async def create_karte_company(request: Request):
         "created_at": now,
         "updated_at": now,
     }
+    for f in _KARTE_ATTR_FIELDS:
+        new_company[f] = _coerce_attr_value(f, body.get(f))
     data.setdefault("companies", []).append(new_company)
     await dropbox_save(COMPANIES_PATH, data)
     _cache_delete("companies")
@@ -1973,6 +2082,9 @@ async def update_karte_company(company_id: str, request: Request):
                           "contract_types", "freee_enabled", "notes", "assigned_users"]:
                 if field in body:
                     c[field] = body[field]
+            for f in _KARTE_ATTR_FIELDS:
+                if f in body:
+                    c[f] = _coerce_attr_value(f, body.get(f))
             c["updated_at"] = _now_iso()
             await dropbox_save(COMPANIES_PATH, data)
             _cache_delete("companies")
@@ -2026,6 +2138,7 @@ async def import_karte_companies_csv(file: UploadFile = File(...)):
             contract_types = [s for s in ct_raw.split(";") if s] if ct_raw else []
             freee_enabled = (row.get("freee_enabled") or "0").strip() == "1"
             notes = row.get("notes") or ""
+            attr_payload = {f: _csv_attr_value(f, row.get(f)) for f in _KARTE_ATTR_FIELDS if f in row}
             existing = next((c for c in companies if code and c.get("code") == code), None)
             if existing:
                 existing.update({
@@ -2034,16 +2147,21 @@ async def import_karte_companies_csv(file: UploadFile = File(...)):
                     "contract_types": contract_types, "freee_enabled": freee_enabled,
                     "notes": notes, "updated_at": now,
                 })
+                existing.update(attr_payload)
                 updated += 1
             else:
-                companies.append({
+                base = {
                     "id": "c" + uuid4().hex[:8],
                     "name": name, "code": code, "type": type_val,
                     "fiscal_month": fiscal_month, "industry": industry,
                     "contract_types": contract_types, "freee_enabled": freee_enabled,
                     "notes": notes, "assigned_users": [],
                     "created_at": now, "updated_at": now,
-                })
+                }
+                # 未指定の属性は None / False で埋めて後方互換
+                for f in _KARTE_ATTR_FIELDS:
+                    base.setdefault(f, _coerce_attr_value(f, attr_payload.get(f)))
+                companies.append(base)
                 added += 1
         except Exception as e:
             errors.append(f"行{i}: {e}")
@@ -2164,6 +2282,25 @@ async def add_fixed_event(company_id: str, request: Request):
     data["fixed_events"].append(event)
     await dropbox_save(_company_schedule_path(company_id), data)
     return event
+
+@app.post("/api/company_schedules/{company_id}/generate_events")
+async def generate_company_events(company_id: str, request: Request):
+    """会社属性から固定イベントを自動生成して追加（既存は残す）"""
+    body = await request.json() if (await request.body()) else {}
+    user_id = body.get("user_id", "")
+    companies_data = await dropbox_get(COMPANIES_PATH) or {"companies": []}
+    company = next((c for c in companies_data.get("companies", []) if c.get("id") == company_id), None)
+    if not company:
+        raise HTTPException(status_code=404, detail="company not found")
+    if not await _check_karte_edit_permission(user_id, company):
+        raise HTTPException(status_code=403, detail="編集権限がありません")
+    if not company.get("entity_type"):
+        raise HTTPException(status_code=400, detail="先に基本情報の属性を設定してください")
+    schedule = await _load_schedule(company_id)
+    new_events = _generate_fixed_events(company)
+    schedule["fixed_events"].extend(new_events)
+    await dropbox_save(_company_schedule_path(company_id), schedule)
+    return {"added": len(new_events), "events": new_events}
 
 @app.put("/api/company_schedules/{company_id}/fixed_events/{event_id}")
 async def update_fixed_event(company_id: str, event_id: str, request: Request):

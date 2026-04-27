@@ -841,6 +841,56 @@
             <div style="font-size:12px; color:#475569;">担当者
               <div id="cm-assigned" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:5px; max-height:120px; overflow-y:auto; padding:8px; border:1px solid #e2e8f0; border-radius:6px;"></div>
             </div>
+            <div style="border-top:1px solid #e2e8f0; padding-top:10px; margin-top:4px;">
+              <div style="font-size:12px; color:#475569; font-weight:600; margin-bottom:6px;">区分</div>
+              <label style="font-size:12px; color:#475569; display:block;">法人・個人
+                <select id="cm-entity-type" onchange="updateCompanyAttrUI()" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; margin-top:3px;">
+                  <option value="">未設定</option>
+                  <option value="corporation">法人</option>
+                  <option value="individual">個人</option>
+                </select>
+              </label>
+            </div>
+
+            <div>
+              <div style="font-size:12px; color:#475569; font-weight:600; margin-bottom:6px;">申告</div>
+              <label style="font-size:12px; color:#475569; display:block;">消費税区分
+                <select id="cm-consumption-tax" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; margin-top:3px;">
+                  <option value="standard">課税（本則）</option>
+                  <option value="simplified">課税（簡易）</option>
+                  <option value="exempt">免税</option>
+                </select>
+              </label>
+              <div id="cm-corp-only" style="display:none; margin-top:6px;">
+                <label style="font-size:12px; color:#475569; display:block;"><input id="cm-tax-extension" type="checkbox" /> 法人税申告期限延長</label>
+                <label style="font-size:12px; color:#475569; display:block;"><input id="cm-ct-extension" type="checkbox" /> 消費税申告期限延長</label>
+                <label style="font-size:12px; color:#475569; display:block;"><input id="cm-simplified-check" type="checkbox" /> 簡易課税判定対象</label>
+              </div>
+            </div>
+
+            <div>
+              <div style="font-size:12px; color:#475569; font-weight:600; margin-bottom:6px;">源泉・給与</div>
+              <label style="font-size:12px; color:#475569; display:block;"><input id="cm-withholding" type="checkbox" onchange="updateCompanyAttrUI()" /> 源泉納付あり</label>
+              <label id="cm-withholding-special-wrap" style="font-size:12px; color:#475569; display:none; margin-left:18px;"><input id="cm-withholding-special" type="checkbox" /> 源泉納期特例</label>
+              <label style="font-size:12px; color:#475569; display:block;"><input id="cm-payroll" type="checkbox" onchange="updateCompanyAttrUI()" /> 給与計算あり</label>
+              <label id="cm-payroll-day-wrap" style="font-size:12px; color:#475569; display:none; margin-left:18px;">給与計算基準日：毎月
+                <input id="cm-payroll-day" type="number" min="1" max="31" value="25" style="width:60px; padding:4px 6px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px;" /> 日
+              </label>
+            </div>
+
+            <div>
+              <div style="font-size:12px; color:#475569; font-weight:600; margin-bottom:6px;">MTG</div>
+              <label style="font-size:12px; color:#475569; display:block;"><input id="cm-mtg" type="checkbox" onchange="updateCompanyAttrUI()" /> 月次MTGあり</label>
+              <label id="cm-mtg-day-wrap" style="font-size:12px; color:#475569; display:none; margin-left:18px;">MTG実施日：毎月
+                <input id="cm-mtg-day" type="number" min="1" max="31" value="28" style="width:60px; padding:4px 6px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px;" /> 日
+              </label>
+            </div>
+
+            <div>
+              <div style="font-size:12px; color:#475569; font-weight:600; margin-bottom:6px;">届出書</div>
+              <label style="font-size:12px; color:#475569; display:block;"><input id="cm-notification-filing" type="checkbox" /> 届出書管理あり</label>
+            </div>
+
             <label style="font-size:12px; color:#475569;">特記事項
               <textarea id="cm-notes" rows="3" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; margin-top:3px; resize:vertical;"></textarea>
             </label>
@@ -858,13 +908,21 @@
           <div style="font-size:16px; font-weight:600; margin-bottom:12px;">CSVインポート</div>
           <pre style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:10px; font-size:11px; white-space:pre-wrap; line-height:1.5; margin-bottom:12px;">CSVフォーマット（1行目はヘッダー）：
 name,code,type,fiscal_month,industry,contract_types,freee_enabled,notes
+[+ 業務属性カラム（任意・列ごと省略可）]
+entity_type,consumption_tax,tax_extension,consumption_tax_extension,
+withholding_tax,withholding_special,payroll,payroll_day,
+mtg,mtg_day,simplified_tax_check,notification_filing
 
 例：
 〇〇クリニック,101234,bookkeeping,1,医療（歯科）,記帳代行;給与計算,1,特記事項
 
 type: bookkeeping=記帳代行 / self=自計化
 contract_types: セミコロン区切りで複数指定可
-freee_enabled: 1=あり / 0=なし</pre>
+freee_enabled: 1=あり / 0=なし
+entity_type: corporation=法人 / individual=個人
+consumption_tax: standard=本則 / simplified=簡易 / exempt=免税
+他のbool項目: 1=あり / 0=なし
+payroll_day / mtg_day: 1〜31 の数字</pre>
           <input type="file" id="company-csv-file" accept=".csv" style="margin-bottom:12px;" />
           <div id="company-csv-result" style="font-size:12px; margin-bottom:12px;"></div>
           <div style="display:flex; gap:8px; justify-content:flex-end;">
@@ -4037,8 +4095,51 @@ function openAddCompanyModal() {
   document.getElementById('cm-notes').value = '';
   document.getElementById('cm-freee').checked = false;
   document.querySelectorAll('#cm-contract-types input').forEach(cb => { cb.checked = false; });
+  fillCompanyAttrModal({});
   renderAssignedUsersChecks([]);
   document.getElementById('company-modal').style.display = 'flex';
+}
+
+function fillCompanyAttrModal(c) {
+  document.getElementById('cm-entity-type').value = c.entity_type || '';
+  document.getElementById('cm-consumption-tax').value = c.consumption_tax || 'standard';
+  document.getElementById('cm-tax-extension').checked = !!c.tax_extension;
+  document.getElementById('cm-ct-extension').checked = !!c.consumption_tax_extension;
+  document.getElementById('cm-simplified-check').checked = !!c.simplified_tax_check;
+  document.getElementById('cm-withholding').checked = !!c.withholding_tax;
+  document.getElementById('cm-withholding-special').checked = !!c.withholding_special;
+  document.getElementById('cm-payroll').checked = !!c.payroll;
+  document.getElementById('cm-payroll-day').value = c.payroll_day || 25;
+  document.getElementById('cm-mtg').checked = !!c.mtg;
+  document.getElementById('cm-mtg-day').value = c.mtg_day || 28;
+  document.getElementById('cm-notification-filing').checked = !!c.notification_filing;
+  updateCompanyAttrUI();
+}
+
+function updateCompanyAttrUI() {
+  const isCorp = document.getElementById('cm-entity-type').value === 'corporation';
+  document.getElementById('cm-corp-only').style.display = isCorp ? 'block' : 'none';
+  document.getElementById('cm-withholding-special-wrap').style.display = document.getElementById('cm-withholding').checked ? 'block' : 'none';
+  document.getElementById('cm-payroll-day-wrap').style.display = document.getElementById('cm-payroll').checked ? 'block' : 'none';
+  document.getElementById('cm-mtg-day-wrap').style.display = document.getElementById('cm-mtg').checked ? 'block' : 'none';
+}
+
+function collectCompanyAttrModal() {
+  const entityType = document.getElementById('cm-entity-type').value || null;
+  return {
+    entity_type: entityType,
+    consumption_tax: document.getElementById('cm-consumption-tax').value || null,
+    tax_extension: entityType === 'corporation' && document.getElementById('cm-tax-extension').checked,
+    consumption_tax_extension: entityType === 'corporation' && document.getElementById('cm-ct-extension').checked,
+    simplified_tax_check: entityType === 'corporation' && document.getElementById('cm-simplified-check').checked,
+    withholding_tax: document.getElementById('cm-withholding').checked,
+    withholding_special: document.getElementById('cm-withholding').checked && document.getElementById('cm-withholding-special').checked,
+    payroll: document.getElementById('cm-payroll').checked,
+    payroll_day: parseInt(document.getElementById('cm-payroll-day').value) || 25,
+    mtg: document.getElementById('cm-mtg').checked,
+    mtg_day: parseInt(document.getElementById('cm-mtg-day').value) || 28,
+    notification_filing: document.getElementById('cm-notification-filing').checked,
+  };
 }
 
 function renderAssignedUsersChecks(selectedIds) {
@@ -4069,6 +4170,7 @@ async function saveCompanyModal(btn) {
     notes: document.getElementById('cm-notes').value,
     assigned_users: Array.from(document.querySelectorAll('#cm-assigned input:checked')).map(cb => cb.value),
     user_id: _currentUser?.id,
+    ...collectCompanyAttrModal(),
   };
   if (btn) { btn.disabled = true; btn.dataset._label = btn.textContent; btn.textContent = '保存中...'; }
   try {
@@ -4265,6 +4367,7 @@ function editCurrentCompany() {
   document.getElementById('cm-freee').checked = !!c.freee_enabled;
   const cts = c.contract_types || [];
   document.querySelectorAll('#cm-contract-types input').forEach(cb => { cb.checked = cts.includes(cb.value); });
+  fillCompanyAttrModal(c);
   renderAssignedUsersChecks(c.assigned_users || []);
   document.getElementById('company-modal').style.display = 'flex';
 }
@@ -4276,6 +4379,7 @@ async function deleteCompany() {
   try {
     const r = await fetch('/api/companies/' + encodeURIComponent(c.id), { method: 'DELETE' });
     if (!r.ok) throw new Error('http ' + r.status);
+    localStorage.removeItem(HOME_SCHEDULES_CACHE_KEY);
     await loadCompanyKarteData();
     backToCompanyList();
     showToast('削除しました');
@@ -4404,7 +4508,10 @@ function renderScheduleTab() {
     <div style="margin-bottom:24px;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
         <div style="font-size:14px; font-weight:600;">📌 固定イベント</div>
-        ${editable ? '<button class="btn-sm" onclick="openFixedEventForm()">＋ 固定イベントを追加</button>' : ''}
+        ${editable ? `<div style="display:flex; gap:6px;">
+          <button id="btn-generate-events" class="btn-sm" onclick="generateEvents()">自動生成</button>
+          <button class="btn-sm" onclick="openFixedEventForm()">＋ 固定イベントを追加</button>
+        </div>` : ''}
       </div>
       <div id="ck-fixed-form" style="display:none; background:#f0f7ff; border:1px solid #93c5fd; border-radius:8px; padding:10px; margin-bottom:10px;"></div>
       <table class="ck-table">
@@ -4486,6 +4593,35 @@ async function saveFixedEvent(eventId) {
 }
 
 function editFixedEvent(eventId) { openFixedEventForm(eventId); }
+
+async function generateEvents() {
+  const c = _ckCurrentCompany();
+  if (!c) return;
+  if (!c.entity_type) {
+    showToast('先に基本情報の属性を設定してください', 'error');
+    return;
+  }
+  const btn = document.getElementById('btn-generate-events');
+  if (btn) { btn.disabled = true; btn.dataset._label = btn.textContent; btn.textContent = '生成中...'; }
+  try {
+    const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/generate_events', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ user_id: _currentUser?.id })
+    });
+    if (!r.ok) throw new Error('http ' + r.status);
+    const data = await r.json();
+    await loadKarteData(_ckCurrentCompanyId);
+    renderScheduleTab();
+    localStorage.removeItem(HOME_SCHEDULES_CACHE_KEY);
+    showToast(`${data.added}件のイベントを追加しました`);
+  } catch (e) {
+    showToast('生成に失敗しました', 'error');
+  } finally {
+    const btn2 = document.getElementById('btn-generate-events');
+    if (btn2) { btn2.disabled = false; btn2.textContent = btn2.dataset._label || '自動生成'; }
+  }
+}
 
 async function deleteFixedEvent(eventId) {
   if (!confirm('この固定イベントを削除しますか？')) return;
