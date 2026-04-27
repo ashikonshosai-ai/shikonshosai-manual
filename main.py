@@ -1962,7 +1962,7 @@ def _generate_fixed_events(company: dict) -> list:
     payroll_day = int(company.get("payroll_day") or 25)
 
     def make_event(name, recurrence, **kwargs):
-        ev = {"id": "fe" + uuid4().hex[:8], "name": name, "recurrence": recurrence, "notes": ""}
+        ev = {"id": "fe" + uuid4().hex[:8], "name": name, "recurrence": recurrence, "notes": "", "auto_generated": True}
         ev.update(kwargs)
         return ev
 
@@ -2288,6 +2288,8 @@ async def generate_company_events(company_id: str, request: Request):
     if not company.get("entity_type"):
         raise HTTPException(status_code=400, detail="先に基本情報の属性を設定してください")
     schedule = await _load_schedule(company_id)
+    # 既存の自動生成イベントを削除（手動追加分は残す）
+    schedule["fixed_events"] = [e for e in schedule.get("fixed_events", []) if not e.get("auto_generated")]
     new_events = _generate_fixed_events(company)
     schedule["fixed_events"].extend(new_events)
     await dropbox_save(_company_schedule_path(company_id), schedule)
@@ -2424,7 +2426,7 @@ async def delete_memo(company_id: str, memo_id: str, request: Request):
 async def get_home_schedules(user_id: str = Query(...)):
     companies_data = await dropbox_get(COMPANIES_PATH) or {"companies": []}
     today = date.today()
-    end = today + timedelta(days=14)
+    end = today + timedelta(days=30)
     results = []
     for c in companies_data.get("companies", []):
         if user_id not in (c.get("assigned_users") or []):
@@ -2456,7 +2458,7 @@ async def get_home_schedules(user_id: str = Query(...)):
                 if dom < 1 or dom > 31:
                     continue
                 candidates = []
-                for offset in (0, 1):
+                for offset in (0, 1, 2):
                     y = today.year
                     m = today.month + offset
                     while m > 12:

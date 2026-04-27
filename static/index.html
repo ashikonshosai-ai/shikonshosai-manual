@@ -1440,7 +1440,7 @@ function renderHome() {
 
   el.innerHTML = `
     <div style="margin-bottom:24px">
-      <div class="home-section-title">📅 向こう2週間のスケジュール</div>
+      <div class="home-section-title">📅 向こう1ヶ月のスケジュール</div>
       <div id="home-schedules" style="max-height:280px; overflow-y:auto;"><div class="empty" style="padding:8px 0; color:#94a3b8;">読み込み中...</div></div>
     </div>
     <div style="margin-bottom:24px">
@@ -4303,7 +4303,7 @@ function renderKarteHeader() {
           <span style="font-size:12px; color:#64748b;">担当: ${esc(users || '未設定')}</span>
         </div>
       </div>
-      ${canDelete ? '<button class="btn-text-red" onclick="deleteCompany()">この会社を削除</button>' : ''}
+      ${canDelete ? '<button class="btn-text-red" onclick="deleteCompany(this)">この会社を削除</button>' : ''}
     </div>`;
 }
 
@@ -4404,10 +4404,11 @@ function editCurrentCompany() {
   document.getElementById('company-modal').style.display = 'flex';
 }
 
-async function deleteCompany() {
+async function deleteCompany(btnEl) {
   const c = _ckCurrentCompany();
   if (!c) return;
   if (!confirm(`「${c.name}」を削除しますか？\n手順書・スケジュール・申し送りもすべて削除されます。`)) return;
+  if (btnEl) { btnEl.disabled = true; btnEl.dataset._label = btnEl.textContent; btnEl.textContent = '削除中...'; }
   try {
     const r = await fetch('/api/companies/' + encodeURIComponent(c.id), { method: 'DELETE' });
     if (!r.ok) throw new Error('http ' + r.status);
@@ -4417,6 +4418,7 @@ async function deleteCompany() {
     showToast('削除しました');
   } catch (e) {
     showToast('削除に失敗しました', 'error');
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = btnEl.dataset._label || 'この会社を削除'; }
   }
 }
 
@@ -4494,7 +4496,7 @@ function renderScheduleTab() {
     const dateStr = ev.recurrence === 'monthly' ? `毎月${ev.day_of_month}日` : `毎年${ev.month}月${ev.day}日`;
     const recur = ev.recurrence === 'monthly' ? '毎月' : '毎年';
     const actions = editable
-      ? `<button class="btn-sm" onclick="editFixedEvent('${ev.id}')">編集</button> <button class="btn-text-red" onclick="deleteFixedEvent('${ev.id}')">削除</button>`
+      ? `<button class="btn-sm" onclick="editFixedEvent('${ev.id}')">編集</button> <button class="btn-text-red" onclick="deleteFixedEvent('${ev.id}', this)">削除</button>`
       : '';
     return `<tr>
       <td>${esc(ev.name)}</td>
@@ -4509,7 +4511,7 @@ function renderScheduleTab() {
     const d = ev.date ? new Date(ev.date) : null;
     const dateStr = d ? `${d.getMonth() + 1}/${d.getDate()} (${'日月火水木金土'[d.getDay()]})` : '';
     const actions = editable
-      ? `<button class="btn-sm" onclick="editSingleEvent('${ev.id}')">編集</button> <button class="btn-text-red" onclick="deleteSingleEvent('${ev.id}')">削除</button>`
+      ? `<button class="btn-sm" onclick="editSingleEvent('${ev.id}')">編集</button> <button class="btn-text-red" onclick="deleteSingleEvent('${ev.id}', this)">削除</button>`
       : '';
     return `<tr>
       <td>${dateStr}</td>
@@ -4637,8 +4639,9 @@ async function generateEvents() {
   }
 }
 
-async function deleteFixedEvent(eventId) {
+async function deleteFixedEvent(eventId, btnEl) {
   if (!confirm('この固定イベントを削除しますか？')) return;
+  if (btnEl) { btnEl.disabled = true; btnEl.dataset._label = btnEl.textContent; btnEl.textContent = '削除中...'; }
   try {
     const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/fixed_events/' + encodeURIComponent(eventId) + '?user_id=' + encodeURIComponent(_currentUser?.id || ''), { method: 'DELETE' });
     if (!r.ok) throw new Error('http ' + r.status);
@@ -4648,6 +4651,7 @@ async function deleteFixedEvent(eventId) {
     showToast('削除しました');
   } catch (e) {
     showToast('削除に失敗しました', 'error');
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = btnEl.dataset._label || '削除'; }
   }
 }
 
@@ -4690,8 +4694,9 @@ async function saveSingleEvent(eventId) {
 
 function editSingleEvent(eventId) { openSingleEventForm(eventId); }
 
-async function deleteSingleEvent(eventId) {
+async function deleteSingleEvent(eventId, btnEl) {
   if (!confirm('この単発イベントを削除しますか？')) return;
+  if (btnEl) { btnEl.disabled = true; btnEl.dataset._label = btnEl.textContent; btnEl.textContent = '削除中...'; }
   try {
     const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/single_events/' + encodeURIComponent(eventId) + '?user_id=' + encodeURIComponent(_currentUser?.id || ''), { method: 'DELETE' });
     if (!r.ok) throw new Error('http ' + r.status);
@@ -4701,6 +4706,7 @@ async function deleteSingleEvent(eventId) {
     showToast('削除しました');
   } catch (e) {
     showToast('削除に失敗しました', 'error');
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = btnEl.dataset._label || '削除'; }
   }
 }
 
@@ -4717,7 +4723,7 @@ function renderMemoTab() {
     return `<div style="border-bottom:1px solid #e2e8f0; padding:12px 0;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
         <div style="font-size:11px; color:#64748b;">${esc(dateLabel)}　${esc(userName)}</div>
-        ${canDelete ? `<button class="btn-text-red" onclick="deleteMemo('${m.id}')">削除</button>` : ''}
+        ${canDelete ? `<button class="btn-text-red" onclick="deleteMemo('${m.id}', this)">削除</button>` : ''}
       </div>
       <div style="font-size:13px; color:#0f172a; line-height:1.6; white-space:pre-wrap;">${esc(m.text || '')}</div>
     </div>`;
@@ -4761,8 +4767,9 @@ async function saveMemo() {
   }
 }
 
-async function deleteMemo(memoId) {
+async function deleteMemo(memoId, btnEl) {
   if (!confirm('このメモを削除しますか？')) return;
+  if (btnEl) { btnEl.disabled = true; btnEl.dataset._label = btnEl.textContent; btnEl.textContent = '削除中...'; }
   try {
     const r = await fetch('/api/company_schedules/' + encodeURIComponent(_ckCurrentCompanyId) + '/memos/' + encodeURIComponent(memoId) + '?user_id=' + encodeURIComponent(_currentUser?.id || ''), { method: 'DELETE' });
     if (!r.ok) throw new Error('http ' + r.status);
@@ -4771,6 +4778,7 @@ async function deleteMemo(memoId) {
     showToast('メモを削除しました');
   } catch (e) {
     showToast('削除に失敗しました', 'error');
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = btnEl.dataset._label || '削除'; }
   }
 }
 
@@ -4819,7 +4827,7 @@ function renderHomeSchedules(schedules) {
   const container = document.getElementById('home-schedules');
   if (!container) return;
   if (!schedules || schedules.length === 0) {
-    container.innerHTML = '<div class="empty" style="padding:8px 0; color:#94a3b8;">向こう2週間の予定はありません</div>';
+    container.innerHTML = '<div class="empty" style="padding:8px 0; color:#94a3b8;">向こう1ヶ月の予定はありません</div>';
     return;
   }
   const sorted = schedules.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
