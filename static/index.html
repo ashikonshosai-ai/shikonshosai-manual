@@ -386,6 +386,7 @@
       </div>
       <div class="nav-item" id="nav-profile" onclick="showProfile()">👤 マイプロフィール</div>
       <div class="nav-item" id="nav-user-mgmt" style="display:none" onclick="showUserMgmt()">⚙ ユーザー管理</div>
+      <div class="nav-item" id="nav-attendance" style="display:none" onclick="showAttendance()">🕐 勤怠管理</div>
       <div class="nav-item" id="nav-hr-test" style="display:none" onclick="openHrApiTest()">💼 HR APIテスト</div>
       <div class="nav-item" id="nav-hr-loc" style="display:none" onclick="openHrLocationTest()">📍 HR 位置情報テスト</div>
     </div>
@@ -1156,6 +1157,10 @@ function setView(mode) {
   document.getElementById('forecast-view').style.display = mode === 'forecast' ? 'block' : 'none';
   const ckView = document.getElementById('company-karte-view');
   if (ckView) ckView.style.display = mode === 'company-karte' ? 'block' : 'none';
+  const attView = document.getElementById('attendance-view');
+  if (attView) attView.style.display = mode === 'attendance' ? 'block' : 'none';
+  const navAtt = document.getElementById('nav-attendance');
+  if (navAtt) navAtt.classList.toggle('active', mode === 'attendance');
   const navCK = document.getElementById('nav-company-karte');
   if (navCK) navCK.classList.toggle('active', mode === 'company-karte');
   document.getElementById('nav-home').classList.toggle('active', mode === 'home');
@@ -1189,6 +1194,8 @@ function render() {
   if (navHr) navHr.style.display = (_currentUser?.role === 'admin') ? 'flex' : 'none';
   const navHrLoc = document.getElementById('nav-hr-loc');
   if (navHrLoc) navHrLoc.style.display = (_currentUser?.role === 'admin') ? 'flex' : 'none';
+  const navAtt = document.getElementById('nav-attendance');
+  if (navAtt) navAtt.style.display = (_currentUser?.role === 'admin') ? 'flex' : 'none';
   // 左ペイン
   const catList = document.getElementById('cat-list');
   catList.innerHTML = '';
@@ -1407,6 +1414,264 @@ async function openHrLocationTest() {
     const json = await r.json();
     const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
     window.open(URL.createObjectURL(blob), '_blank');
+  } catch (e) {
+    alert('通信エラー: ' + e.message);
+  }
+}
+
+// ==== 勤怠管理 ====================================================
+const ATT_DEFAULT_EMPLOYEE_ID = 3914999; // 落合さん固定（暫定）
+let _attState = {
+  year_month: '',
+  employee_id: ATT_DEFAULT_EMPLOYEE_ID,
+  records: [],
+  dirty: new Set(),
+};
+
+function _attYM(d) {
+  return d.toISOString().slice(0, 7);
+}
+
+function _attShiftMonth(ymStr, delta) {
+  const [y, m] = ymStr.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+function _attMinsToHM(mins) {
+  const m = Math.max(0, Math.round(mins || 0));
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${h}:${String(mm).padStart(2, '0')}`;
+}
+
+function _attTimeOnly(iso) {
+  if (!iso) return '';
+  // freeeの ISO（"2026-04-01T09:00:00.000+09:00"）→ "09:00"
+  const s = String(iso);
+  const m = s.match(/T(\d{2}):(\d{2})/);
+  return m ? `${m[1]}:${m[2]}` : '';
+}
+
+function _attTimeToIso(date_str, hhmm) {
+  if (!hhmm) return null;
+  // 既存ISOの形式を保ちつつ時刻だけ書き換える
+  return `${date_str}T${hhmm}:00.000+09:00`;
+}
+
+async function showAttendance() {
+  if (!_attState.year_month) {
+    _attState.year_month = _attYM(new Date());
+  }
+  // attendance-view を動的作成（初回のみ）
+  let view = document.getElementById('attendance-view');
+  if (!view) {
+    view = document.createElement('div');
+    view.id = 'attendance-view';
+    document.getElementById('right-pane').appendChild(view);
+  }
+  setView('attendance');
+  render();
+  view.innerHTML = `
+    <div style="padding:16px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <h2 style="font-size:18px;margin:0;flex:0 0 auto">🕐 勤怠管理</h2>
+        <button class="btn-sec" onclick="attShift(-1)">← 前月</button>
+        <span id="att-ym" style="font-size:15px;font-weight:600">${_attState.year_month}</span>
+        <button class="btn-sec" onclick="attShift(1)">翌月 →</button>
+        <span style="margin-left:10px;font-size:12px;color:#64748b">対象：落合さん（ID:${ATT_DEFAULT_EMPLOYEE_ID}）</span>
+        <button class="btn-pri" style="margin-left:auto" onclick="attLoad()">TOTデータ取得</button>
+      </div>
+      <div id="att-body">
+        <p style="color:#94a3b8;font-size:13px">「TOTデータ取得」をクリックして当月の勤怠を取り込みます。</p>
+      </div>
+    </div>`;
+  // 共通スタイル（インラインで簡素に）
+  if (!document.getElementById('att-style')) {
+    const st = document.createElement('style');
+    st.id = 'att-style';
+    st.textContent = `
+      .att-table{border-collapse:collapse;width:100%;font-size:12.5px}
+      .att-table th,.att-table td{border:0.5px solid #e2e8f0;padding:4px 6px;text-align:center;background:#fff}
+      .att-table th{background:#f8fafc;font-weight:600}
+      .att-table tr.dirty td{background:#fff7ed}
+      .att-table input[type=time]{width:80px;padding:2px 4px;font-size:12px;border:0.5px solid #cbd5e1;border-radius:3px}
+      .att-table input[type=text]{width:100%;padding:2px 4px;font-size:12px;border:0.5px solid #cbd5e1;border-radius:3px}
+      .att-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:14px}
+      .att-summary > div{border:0.5px solid #e2e8f0;border-radius:6px;padding:8px 10px;background:#fafbfc;text-align:center}
+      .att-summary .v{font-size:18px;font-weight:700;color:#1d4ed8}
+      .att-summary .l{font-size:11px;color:#64748b;margin-top:2px}
+      .btn-pri{background:#1d4ed8;color:#fff;border:none;border-radius:5px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer}
+      .btn-sec{background:#fff;color:#374151;border:0.5px solid #d1d5db;border-radius:5px;padding:5px 12px;font-size:13px;cursor:pointer}
+      .btn-sec:hover{background:#f9fafb}
+    `;
+    document.head.appendChild(st);
+  }
+}
+
+function attShift(delta) {
+  _attState.year_month = _attShiftMonth(_attState.year_month, delta);
+  document.getElementById('att-ym').textContent = _attState.year_month;
+  document.getElementById('att-body').innerHTML = '<p style="color:#94a3b8;font-size:13px">「TOTデータ取得」をクリックして当月の勤怠を取り込みます。</p>';
+  _attState.records = [];
+  _attState.dirty.clear();
+}
+
+async function attLoad() {
+  const body = document.getElementById('att-body');
+  body.innerHTML = '<p style="color:#94a3b8;font-size:13px">読み込み中…（数秒かかります）</p>';
+  const headers = { 'user-id': _currentUser.id };
+  try {
+    const url = `/api/hr/attendance?year_month=${_attState.year_month}&employee_id=${_attState.employee_id}`;
+    const r = await fetch(url, { headers });
+    if (r.status === 401) {
+      const ar = await fetch('/api/hr/auth', { headers });
+      const ad = await ar.json().catch(() => ({}));
+      if (ad.auth_url) window.open(ad.auth_url, '_blank');
+      else alert('認証URL取得失敗');
+      body.innerHTML = '<p style="color:#dc2626;font-size:13px">freee認証が必要です。別タブで認証後、再度「TOTデータ取得」を押してください。</p>';
+      return;
+    }
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      body.innerHTML = `<p style="color:#dc2626;font-size:13px">取得失敗: ${err.detail || r.status}</p>`;
+      return;
+    }
+    const data = await r.json();
+    _attState.records = data.records || [];
+    _attState.dirty.clear();
+    attRender();
+  } catch (e) {
+    body.innerHTML = `<p style="color:#dc2626;font-size:13px">通信エラー: ${e.message}</p>`;
+  }
+}
+
+function attRender() {
+  const body = document.getElementById('att-body');
+  const wd = '日月火水木金土';
+  const rows = _attState.records.map((r, i) => {
+    const d = new Date(r.date);
+    const w = wd[d.getDay()];
+    const isWeekend = (d.getDay() === 0 || d.getDay() === 6);
+    const dirty = _attState.dirty.has(r.date) ? 'dirty' : '';
+    return `<tr class="${dirty}" data-date="${r.date}" style="${isWeekend?'background:#f8fafc':''}">
+      <td>${r.date.slice(5)}<br><span style="font-size:10px;color:${d.getDay()===0?'#dc2626':d.getDay()===6?'#2563eb':'#94a3b8'}">${w}</span></td>
+      <td><input type="time" value="${_attTimeOnly(r.clock_in_at)}" onchange="attEdit(${i},'clock_in_at',this.value)"></td>
+      <td><input type="time" value="${_attTimeOnly(r.clock_out_at)}" onchange="attEdit(${i},'clock_out_at',this.value)"></td>
+      <td>${_attMinsToHM(r.normal_work_mins)}</td>
+      <td>${_attMinsToHM(r.total_overtime_work_mins)}</td>
+      <td><input type="checkbox" ${r.is_telework?'checked':''} onchange="attEdit(${i},'is_telework',this.checked)"></td>
+      <td><input type="text" value="${(r.note||'').replace(/"/g,'&quot;')}" onchange="attEdit(${i},'note',this.value)"></td>
+    </tr>`;
+  }).join('');
+  // サマリー
+  let totalMins = 0, otMins = 0, days = 0, telework = 0;
+  _attState.records.forEach(r => {
+    totalMins += (r.normal_work_mins||0) + (r.total_overtime_work_mins||0);
+    otMins += (r.total_overtime_work_mins||0);
+    if ((r.normal_work_mins||0) > 0 || r.clock_in_at) days++;
+    if (r.is_telework) telework++;
+  });
+  const HOURLY = 2000, OT_THRESH = 55*60;
+  const otExtra = Math.max(0, otMins - OT_THRESH);
+  const otAllow = Math.round((otExtra/60) * HOURLY * 1.25);
+  const teleAllow = days > 0 ? Math.round((5000/days) * telework) : 0;
+
+  body.innerHTML = `
+    <div style="overflow-x:auto">
+      <table class="att-table">
+        <thead><tr>
+          <th>日付</th><th>出勤</th><th>退勤</th><th>労働</th><th>残業</th><th>在宅</th><th>備考</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div class="att-summary">
+      <div><div class="v">${_attMinsToHM(totalMins)}</div><div class="l">合計労働</div></div>
+      <div><div class="v">${_attMinsToHM(otMins)}</div><div class="l">残業</div></div>
+      <div><div class="v">${days}日</div><div class="l">勤務日数</div></div>
+      <div><div class="v">${telework}日</div><div class="l">在宅日数</div></div>
+      <div><div class="v">¥${otAllow.toLocaleString()}</div><div class="l">残業手当(仮)</div></div>
+      <div><div class="v">¥${teleAllow.toLocaleString()}</div><div class="l">在宅手当(仮)</div></div>
+    </div>
+    <p style="margin-top:6px;font-size:11px;color:#94a3b8">※ 残業手当・在宅手当は仮置きの計算ロジックです（社労士確認待ち）。</p>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn-pri" onclick="attSave()">保存</button>
+      <button class="btn-sec" onclick="attPayroll()">給与計算確認</button>
+    </div>`;
+}
+
+function attEdit(idx, key, val) {
+  const r = _attState.records[idx];
+  if (!r) return;
+  if (key === 'clock_in_at' || key === 'clock_out_at') {
+    r[key] = val ? _attTimeToIso(r.date, val) : null;
+  } else if (key === 'is_telework') {
+    r[key] = !!val;
+  } else {
+    r[key] = val;
+  }
+  _attState.dirty.add(r.date);
+  // 行クラスのみ更新
+  const row = document.querySelector(`tr[data-date="${r.date}"]`);
+  if (row) row.classList.add('dirty');
+}
+
+async function attSave() {
+  const headers = { 'user-id': _currentUser.id, 'Content-Type': 'application/json' };
+  const teleworkDays = _attState.records.filter(r => r.is_telework).length;
+  try {
+    const r = await fetch('/api/hr/attendance', {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        employee_id: _attState.employee_id,
+        year_month: _attState.year_month,
+        records: _attState.records,
+        telework_days: teleworkDays,
+      }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      alert('保存失敗: ' + (err.detail || r.status));
+      return;
+    }
+    _attState.dirty.clear();
+    document.querySelectorAll('.att-table tr.dirty').forEach(t => t.classList.remove('dirty'));
+    alert('保存しました');
+  } catch (e) {
+    alert('通信エラー: ' + e.message);
+  }
+}
+
+async function attPayroll() {
+  const headers = { 'user-id': _currentUser.id, 'Content-Type': 'application/json' };
+  try {
+    const r = await fetch('/api/hr/payroll', {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        employee_id: _attState.employee_id,
+        year_month: _attState.year_month,
+      }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      alert('給与計算失敗: ' + (err.detail || r.status));
+      return;
+    }
+    const d = await r.json();
+    const lines = [
+      `年月: ${d.year_month}`,
+      `従業員ID: ${d.employee_id}`,
+      `合計労働: ${_attMinsToHM(d.total_work_mins)}`,
+      `残業: ${_attMinsToHM(d.total_overtime_mins)}`,
+      `勤務日数: ${d.work_days}日`,
+      `在宅日数: ${d.telework_days}日`,
+      `残業手当(仮): ¥${(d.overtime_allowance||0).toLocaleString()}`,
+      `在宅手当(仮): ¥${(d.telework_allowance||0).toLocaleString()}`,
+      '',
+      d.note || '',
+    ];
+    alert(lines.join('\n'));
   } catch (e) {
     alert('通信エラー: ' + e.message);
   }

@@ -473,6 +473,178 @@ async def hr_refresh(user_id: str = Header(None, alias="user-id")):
     return {"ok": True, "expires_at": new_tok.get("expires_at")}
 
 
+ATTENDANCE_BASE = "/外注先共有/400000_CC/shikonshosai/attendance"
+
+
+def _attendance_path(employee_id: int, year_month: str) -> str:
+    return f"{ATTENDANCE_BASE}/{employee_id}_{year_month}.json"
+
+
+def _month_dates(year_month: str):
+    """YYYY-MM の月初〜月末日付リスト（date型）を返す"""
+    y, m = year_month.split("-")
+    y = int(y); m = int(m)
+    last = calendar.monthrange(y, m)[1]
+    return [date(y, m, d) for d in range(1, last + 1)]
+
+
+def _normalize_work_record(date_str: str, body) -> dict:
+    """freee /work_records/{date} のレスポンスを 1 行分に正規化"""
+    if not isinstance(body, dict):
+        body = {}
+    return {
+        "date": date_str,
+        "clock_in_at": body.get("clock_in_at"),
+        "clock_out_at": body.get("clock_out_at"),
+        "normal_work_mins": body.get("normal_work_mins") or 0,
+        "total_overtime_work_mins": body.get("total_overtime_work_mins") or 0,
+        "is_absence": bool(body.get("is_absence")),
+        "note": body.get("note") or "",
+    }
+
+
+@app.get("/api/hr/attendance")
+async def hr_get_attendance(
+    user_id: str = Header(None, alias="user-id"),
+    year_month: str = Query(...),
+    employee_id: int = Query(...),
+):
+    """月次勤怠データを freee 人事労務 API から日別取得して返す。
+    Dropbox に保存済みの編集データがあればそれを優先（is_telework / note 編集が残るように）。"""
+    await _hr_require_admin(user_id)
+    access_token = await _hr_get_valid_access_token()
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    # company_id 取得
+    async with httpx.AsyncClient(timeout=30) as client:
+        me_resp = await client.get(f"{FREEE_HR_API_BASE}/users/me", headers=headers)
+        if me_resp.status_code != 200:
+            raise HTTPException(502, f"users/me 失敗: {me_resp.text}")
+        companies = (me_resp.json() or {}).get("companies", [])
+        company_id = companies[0]["id"] if companies else None
+    if not company_id:
+        raise HTTPException(400, "company_id が取得できませんでした")
+
+    # 既存の編集済みデータ（あれば）
+    saved = await dropbox_get(_attendance_path(employee_id, year_month)) or {}
+    saved_map = {r["date"]: r for r in (saved.get("records") or []) if isinstance(r, dict) and r.get("date")}
+
+    dates = _month_dates(year_month)
+    sem = asyncio.Semaphore(4)
+    records = [None] * len(dates)
+
+    async def fetch_one(i, d):
+        date_str = d.isoformat()
+        async with sem:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(
+                    f"{FREEE_HR_API_BASE}/employees/{employee_id}/work_records/{date_str}",
+                    headers=headers,
+                    params={"company_id": company_id},
+                )
+                try:
+                    body = resp.json() if resp.status_code == 200 else {}
+                except Exception:
+                    body = {}
+        rec = _normalize_work_record(date_str, body)
+        # 編集済みデータの is_telework / note を上書き反映
+        if date_str in saved_map:
+            sv = saved_map[date_str]
+            if "is_telework" in sv:
+                rec["is_telework"] = bool(sv["is_telework"])
+            if sv.get("note"):
+                rec["note"] = sv["note"]
+        rec.setdefault("is_telework", False)
+        records[i] = rec
+
+    await asyncio.gather(*[fetch_one(i, d) for i, d in enumerate(dates)])
+
+    return {
+        "year_month": year_month,
+        "employee_id": employee_id,
+        "records": records,
+    }
+
+
+@app.post("/api/hr/attendance")
+async def hr_save_attendance(
+    request: Request,
+    user_id: str = Header(None, alias="user-id"),
+):
+    """編集済み勤怠データを Dropbox に保存"""
+    await _hr_require_admin(user_id)
+    body = await request.json()
+    employee_id = body.get("employee_id")
+    year_month = body.get("year_month")
+    if not employee_id or not year_month:
+        raise HTTPException(400, "employee_id / year_month が必要です")
+    payload = {
+        "year_month": year_month,
+        "employee_id": int(employee_id),
+        "records": body.get("records") or [],
+        "telework_days": body.get("telework_days"),
+        "saved_at": _now_iso(),
+        "saved_by": user_id,
+    }
+    await dropbox_save(_attendance_path(int(employee_id), year_month), payload)
+    return {"status": "ok"}
+
+
+@app.post("/api/hr/payroll")
+async def hr_payroll(
+    request: Request,
+    user_id: str = Header(None, alias="user-id"),
+):
+    """保存済み勤怠データから残業手当・在宅手当を仮計算して返す（freee送信は行わない）"""
+    await _hr_require_admin(user_id)
+    body = await request.json()
+    employee_id = int(body.get("employee_id") or 0)
+    year_month = body.get("year_month") or ""
+    if not employee_id or not year_month:
+        raise HTTPException(400, "employee_id / year_month が必要です")
+    saved = await dropbox_get(_attendance_path(employee_id, year_month))
+    if not saved:
+        raise HTTPException(404, "保存済み勤怠データがありません。先に保存してください")
+    records = saved.get("records") or []
+
+    total_work_mins = 0
+    total_overtime_mins = 0
+    work_days = 0
+    telework_days = 0
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        nw = int(r.get("normal_work_mins") or 0)
+        ow = int(r.get("total_overtime_work_mins") or 0)
+        total_work_mins += nw + ow
+        total_overtime_mins += ow
+        if (nw + ow) > 0 or r.get("clock_in_at"):
+            work_days += 1
+        if r.get("is_telework"):
+            telework_days += 1
+
+    # 仮置きロジック
+    HOURLY_RATE = 2000  # 仮
+    OT_THRESHOLD_MINS = 55 * 60  # 定額残業 55h
+    over_extra_mins = max(0, total_overtime_mins - OT_THRESHOLD_MINS)
+    overtime_allowance = int(round((over_extra_mins / 60) * HOURLY_RATE * 1.25))
+    telework_allowance = 0
+    if work_days > 0:
+        telework_allowance = int(round((5000 / work_days) * telework_days))
+
+    return {
+        "year_month": year_month,
+        "employee_id": employee_id,
+        "total_work_mins": total_work_mins,
+        "total_overtime_mins": total_overtime_mins,
+        "work_days": work_days,
+        "telework_days": telework_days,
+        "overtime_allowance": overtime_allowance,
+        "telework_allowance": telework_allowance,
+        "note": "計算ロジック仮置き：超過残業手当・在宅手当は社労士確認待ち",
+    }
+
+
 def _scan_location_keys(obj, prefix=""):
     """JSON ツリーから位置情報候補キー（loc/lat/lon/gps/address）を再帰スキャンして
     [{"path": ".....", "value": ...}, ...] を返す。"""
