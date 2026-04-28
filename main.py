@@ -390,13 +390,37 @@ async def hr_test(user_id: str = Header(None, alias="user-id")):
                 "employees": {"status": emp_status, "body": emp_data},
             })
 
-        # ③ 対象従業員（環境変数 FREEE_HR_TARGET_NUM、デフォルト "018"）の月次勤怠サマリー
+        # ③ 対象従業員の月次勤怠サマリー
+        # 環境変数 FREEE_HR_EMPLOYEE_ID が設定されていれば直接 ID 指定（検索スキップ）
+        # それ以外は FREEE_HR_TARGET_NUM（デフォルト "018"）で num 検索
         target_num_raw = os.environ.get("FREEE_HR_TARGET_NUM", "018")
-        employees_list = _extract_employees_list(emp_data)
+        forced_emp_id = (os.environ.get("FREEE_HR_EMPLOYEE_ID") or "").strip()
+        # freee /employees の実構造: {"employees": [...]} の二重ネスト → 直接 .get で取り出す
+        if isinstance(emp_data, dict):
+            employees_list = emp_data.get("employees", [])
+            if not isinstance(employees_list, list):
+                employees_list = _extract_employees_list(emp_data)
+        elif isinstance(emp_data, list):
+            employees_list = emp_data
+        else:
+            employees_list = []
         debug_nums = [str(e.get("num")) for e in employees_list if isinstance(e, dict)]
         print(f"[hr-test] employees_list len={len(employees_list)} debug_nums={debug_nums}")
         print(f"[hr-test] emp_data type={type(emp_data).__name__} top_keys={list(emp_data.keys()) if isinstance(emp_data, dict) else 'list'}")
-        target_emp = _find_employee_by_num(employees_list, target_num_raw)
+        print(f"[hr-test] forced_emp_id={forced_emp_id!r} target_num={target_num_raw!r}")
+
+        target_emp = None
+        if forced_emp_id:
+            target_emp = next(
+                (e for e in employees_list if isinstance(e, dict) and str(e.get("id")) == forced_emp_id),
+                None,
+            )
+            if target_emp is None:
+                # 一覧にない場合でも強制 ID で叩く
+                target_emp = {"id": int(forced_emp_id) if forced_emp_id.isdigit() else forced_emp_id, "num": None}
+        else:
+            target_emp = _find_employee_by_num(employees_list, target_num_raw)
+
         if target_emp:
             target_emp_id = target_emp.get("id")
             sum_resp = await client.get(
@@ -410,6 +434,7 @@ async def hr_test(user_id: str = Header(None, alias="user-id")):
                 sum_body = {"raw": sum_resp.text}
             summary_block = {
                 "target_num": target_num_raw,
+                "forced_employee_id": forced_emp_id or None,
                 "employee_id": target_emp_id,
                 "employee_num": target_emp.get("num"),
                 "status": sum_resp.status_code,
@@ -418,6 +443,7 @@ async def hr_test(user_id: str = Header(None, alias="user-id")):
         else:
             summary_block = {
                 "target_num": target_num_raw,
+                "forced_employee_id": forced_emp_id or None,
                 "error": f"従業員番号 {target_num_raw} が見つかりませんでした",
             }
 
@@ -431,6 +457,7 @@ async def hr_test(user_id: str = Header(None, alias="user-id")):
                 "employees_list_len": len(employees_list),
                 "debug_nums": debug_nums,
                 "target_num": target_num_raw,
+                "forced_employee_id": forced_emp_id or None,
             },
             "work_record_summary": summary_block,
         })
