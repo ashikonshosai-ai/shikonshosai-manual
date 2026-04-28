@@ -488,6 +488,23 @@ def _month_dates(year_month: str):
     return [date(y, m, d) for d in range(1, last + 1)]
 
 
+def _payroll_period_dates(year_month: str):
+    """給与締め期間の日付リスト（前月21日〜当月20日）。
+    例: "2026-04" → 2026-03-21 〜 2026-04-20"""
+    y, m = year_month.split("-")
+    y = int(y); m = int(m)
+    prev_y = y if m > 1 else y - 1
+    prev_m = m - 1 if m > 1 else 12
+    start = date(prev_y, prev_m, 21)
+    end = date(y, m, 20)
+    out = []
+    cur = start
+    while cur <= end:
+        out.append(cur)
+        cur = cur + timedelta(days=1)
+    return out
+
+
 def _normalize_work_record(date_str: str, body) -> dict:
     """freee /work_records/{date} のレスポンスを 1 行分に正規化"""
     if not isinstance(body, dict):
@@ -529,7 +546,8 @@ async def hr_get_attendance(
     saved = await dropbox_get(_attendance_path(employee_id, year_month)) or {}
     saved_map = {r["date"]: r for r in (saved.get("records") or []) if isinstance(r, dict) and r.get("date")}
 
-    dates = _month_dates(year_month)
+    # 給与締め期間（前月21日〜当月20日）で取得
+    dates = _payroll_period_dates(year_month)
     sem = asyncio.Semaphore(4)
     records = [None] * len(dates)
 
@@ -643,113 +661,6 @@ async def hr_payroll(
         "telework_allowance": telework_allowance,
         "note": "計算ロジック仮置き：超過残業手当・在宅手当は社労士確認待ち",
     }
-
-
-def _scan_location_keys(obj, prefix=""):
-    """JSON ツリーから位置情報候補キー（loc/lat/lon/gps/address）を再帰スキャンして
-    [{"path": ".....", "value": ...}, ...] を返す。"""
-    KEY_HINTS = ("loc", "lat", "lon", "gps", "address", "geo")
-    found = []
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            full = f"{prefix}.{k}" if prefix else k
-            kl = str(k).lower()
-            if any(h in kl for h in KEY_HINTS):
-                # 値がコレクションの場合は要約
-                if isinstance(v, (dict, list)):
-                    found.append({"path": full, "value_type": type(v).__name__, "preview": str(v)[:200]})
-                else:
-                    found.append({"path": full, "value": v})
-            found.extend(_scan_location_keys(v, full))
-    elif isinstance(obj, list):
-        for i, v in enumerate(obj):
-            found.extend(_scan_location_keys(v, f"{prefix}[{i}]"))
-    return found
-
-
-@app.get("/api/hr/test_location")
-async def hr_test_location(
-    user_id: str = Header(None, alias="user-id"),
-    date: str = Query("2026-04-23"),
-    employee_id: int = Query(None),
-):
-    """日次勤怠 work_records/{date} と（あれば）work_record_segments/{date} を取得し、
-    位置情報候補フィールドをスキャンして返すデバッグ用エンドポイント。
-
-    employee_id 指定が無ければ環境変数 FREEE_HR_EMPLOYEE_ID をフォールバックに使用。
-    """
-    await _hr_require_admin(user_id)
-    access_token = await _hr_get_valid_access_token()
-    headers = {"Authorization": f"Bearer {access_token}"}
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        # company_id 取得
-        me_resp = await client.get(f"{FREEE_HR_API_BASE}/users/me", headers=headers)
-        if me_resp.status_code != 200:
-            raise HTTPException(502, f"users/me 失敗: {me_resp.text}")
-        me_data = me_resp.json()
-        companies = me_data.get("companies", []) if isinstance(me_data, dict) else []
-        company_id = companies[0]["id"] if companies else None
-        if not company_id:
-            raise HTTPException(400, "company_id が取得できませんでした")
-
-        # employee_id 解決
-        emp_id = employee_id
-        if not emp_id:
-            forced = (os.environ.get("FREEE_HR_EMPLOYEE_ID") or "").strip()
-            if forced.isdigit():
-                emp_id = int(forced)
-        if not emp_id:
-            raise HTTPException(400, "employee_id クエリ または FREEE_HR_EMPLOYEE_ID 環境変数を指定してください")
-
-        # ① work_records/{date}
-        wr_resp = await client.get(
-            f"{FREEE_HR_API_BASE}/employees/{emp_id}/work_records/{date}",
-            headers=headers,
-            params={"company_id": company_id},
-        )
-        try:
-            wr_body = wr_resp.json()
-        except Exception:
-            wr_body = {"raw": wr_resp.text}
-        print(f"[hr-loc] work_records status={wr_resp.status_code} body_keys={list(wr_body.keys()) if isinstance(wr_body, dict) else type(wr_body).__name__}")
-
-        # ② work_record_segments/{date}（仕様未確認のため試行）
-        seg_resp = await client.get(
-            f"{FREEE_HR_API_BASE}/employees/{emp_id}/work_record_segments/{date}",
-            headers=headers,
-            params={"company_id": company_id},
-        )
-        try:
-            seg_body = seg_resp.json()
-        except Exception:
-            seg_body = {"raw": seg_resp.text}
-        print(f"[hr-loc] work_record_segments status={seg_resp.status_code} body_keys={list(seg_body.keys()) if isinstance(seg_body, dict) else type(seg_body).__name__}")
-
-    # 位置情報候補キーをスキャン
-    loc_in_wr = _scan_location_keys(wr_body)
-    loc_in_seg = _scan_location_keys(seg_body)
-    print(f"[hr-loc] location_candidates work_records={len(loc_in_wr)} segments={len(loc_in_seg)}")
-
-    return JSONResponse({
-        "params": {"date": date, "employee_id": emp_id, "company_id": company_id},
-        "work_records": {
-            "status": wr_resp.status_code,
-            "all_keys": list(wr_body.keys()) if isinstance(wr_body, dict) else None,
-            "body": wr_body,
-        },
-        "work_record_segments": {
-            "status": seg_resp.status_code,
-            "all_keys": list(seg_body.keys()) if isinstance(seg_body, dict) else None,
-            "body": seg_body,
-        },
-        "location_candidates_in_work_records": loc_in_wr,
-        "location_candidates_in_segments": loc_in_seg,
-        "summary": {
-            "work_records_has_location": bool(loc_in_wr),
-            "segments_has_location": bool(loc_in_seg),
-        },
-    })
 
 
 @app.get("/api/manuals")
