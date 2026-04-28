@@ -244,6 +244,34 @@ async def _hr_refresh_access_token(refresh_token: str) -> dict:
     return await _hr_get_token()
 
 
+def _find_employee_by_num(emp_list, target_num):
+    """freee 人事労務 /employees レスポンスから num が一致する従業員を返す。
+    値の型ゆれ（"018" / "18" / 18）を吸収するため、文字列一致と整数一致の両方で照合する。"""
+    if not isinstance(emp_list, list):
+        return None
+    target_str = str(target_num).strip()
+    try:
+        target_int = int(target_str)
+    except (TypeError, ValueError):
+        target_int = None
+    for emp in emp_list:
+        if not isinstance(emp, dict):
+            continue
+        raw = emp.get("num")
+        if raw is None or raw == "":
+            continue
+        s = str(raw).strip()
+        if s == target_str:
+            return emp
+        if target_int is not None:
+            try:
+                if int(s) == target_int:
+                    return emp
+            except (TypeError, ValueError):
+                pass
+    return None
+
+
 async def _hr_get_valid_access_token() -> str:
     """hr_token.json から有効なアクセストークンを取得。期限切れなら自動リフレッシュ。"""
     tok = await _hr_get_token()
@@ -347,14 +375,9 @@ async def hr_test(user_id: str = Header(None, alias="user-id")):
                 "employees": {"status": emp_status, "body": emp_data},
             })
 
-        # ③ 従業員番号 018 の月次勤怠サマリー
-        target_emp = None
-        if isinstance(emp_data, list):
-            target_emp = next(
-                (e for e in emp_data if str(e.get("num") or e.get("emp_code") or e.get("employee_number") or "") == "018"),
-                None,
-            )
-        summary_block = None
+        # ③ 対象従業員（環境変数 FREEE_HR_TARGET_NUM、デフォルト "018"）の月次勤怠サマリー
+        target_num_raw = os.environ.get("FREEE_HR_TARGET_NUM", "018")
+        target_emp = _find_employee_by_num(emp_data, target_num_raw)
         if target_emp:
             target_emp_id = target_emp.get("id")
             sum_resp = await client.get(
@@ -367,19 +390,23 @@ async def hr_test(user_id: str = Header(None, alias="user-id")):
             except Exception:
                 sum_body = {"raw": sum_resp.text}
             summary_block = {
+                "target_num": target_num_raw,
                 "employee_id": target_emp_id,
                 "employee_num": target_emp.get("num"),
                 "status": sum_resp.status_code,
                 "body": sum_body,
             }
         else:
-            summary_block = {"error": "従業員番号 018 が見つかりませんでした"}
+            summary_block = {
+                "target_num": target_num_raw,
+                "error": f"従業員番号 {target_num_raw} が見つかりませんでした",
+            }
 
         return JSONResponse(content={
             "users_me": me_data,
             "company_id": company_id,
             "employees": emp_data,
-            "work_record_summary_018": summary_block,
+            "work_record_summary": summary_block,
         })
 
 
