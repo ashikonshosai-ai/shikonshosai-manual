@@ -244,16 +244,30 @@ async def _hr_refresh_access_token(refresh_token: str) -> dict:
     return await _hr_get_token()
 
 
+def _extract_employees_list(emp_data):
+    """freee /employees のレスポンス構造ゆれを吸収して list を返す。
+    ありうる形：[...] / {"employees": [...]} / {"data": [...]} / {"results": [...]}"""
+    if isinstance(emp_data, list):
+        return emp_data
+    if isinstance(emp_data, dict):
+        for key in ("employees", "data", "results", "items"):
+            v = emp_data.get(key)
+            if isinstance(v, list):
+                return v
+    return []
+
+
 def _find_employee_by_num(emp_list, target_num):
     """freee 人事労務 /employees レスポンスから num が一致する従業員を返す。
     値の型ゆれ（"018" / "18" / 18）を吸収するため、文字列一致と整数一致の両方で照合する。"""
-    if not isinstance(emp_list, list):
-        return None
     target_str = str(target_num).strip()
     try:
         target_int = int(target_str)
     except (TypeError, ValueError):
         target_int = None
+    print(f"[hr-test] _find_employee_by_num target_str={target_str!r} target_int={target_int!r} count={len(emp_list) if isinstance(emp_list, list) else 'NOT_LIST'}")
+    if not isinstance(emp_list, list):
+        return None
     for emp in emp_list:
         if not isinstance(emp, dict):
             continue
@@ -261,6 +275,7 @@ def _find_employee_by_num(emp_list, target_num):
         if raw is None or raw == "":
             continue
         s = str(raw).strip()
+        print(f"[hr-test]   compare emp_id={emp.get('id')!r} num_raw={raw!r} num_str={s!r}")
         if s == target_str:
             return emp
         if target_int is not None:
@@ -377,7 +392,11 @@ async def hr_test(user_id: str = Header(None, alias="user-id")):
 
         # ③ 対象従業員（環境変数 FREEE_HR_TARGET_NUM、デフォルト "018"）の月次勤怠サマリー
         target_num_raw = os.environ.get("FREEE_HR_TARGET_NUM", "018")
-        target_emp = _find_employee_by_num(emp_data, target_num_raw)
+        employees_list = _extract_employees_list(emp_data)
+        debug_nums = [str(e.get("num")) for e in employees_list if isinstance(e, dict)]
+        print(f"[hr-test] employees_list len={len(employees_list)} debug_nums={debug_nums}")
+        print(f"[hr-test] emp_data type={type(emp_data).__name__} top_keys={list(emp_data.keys()) if isinstance(emp_data, dict) else 'list'}")
+        target_emp = _find_employee_by_num(employees_list, target_num_raw)
         if target_emp:
             target_emp_id = target_emp.get("id")
             sum_resp = await client.get(
@@ -406,6 +425,13 @@ async def hr_test(user_id: str = Header(None, alias="user-id")):
             "users_me": me_data,
             "company_id": company_id,
             "employees": emp_data,
+            "debug": {
+                "emp_data_type": type(emp_data).__name__,
+                "emp_data_top_keys": list(emp_data.keys()) if isinstance(emp_data, dict) else None,
+                "employees_list_len": len(employees_list),
+                "debug_nums": debug_nums,
+                "target_num": target_num_raw,
+            },
             "work_record_summary": summary_block,
         })
 
