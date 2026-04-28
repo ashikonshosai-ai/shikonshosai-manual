@@ -23,6 +23,15 @@ FREEE_COMPANY_ID = int(os.environ.get("FREEE_COMPANY_ID", "3254695"))
 _FREEE_CLIENT_ID     = os.environ.get("FREEE_CLIENT_ID", "")
 _FREEE_CLIENT_SECRET = os.environ.get("FREEE_CLIENT_SECRET", "")
 _FREEE_REFRESH_TOKEN = os.environ.get("FREEE_REFRESH_TOKEN", "")
+# freee 人事労務 API テスト用
+_FREEE_HR_CLIENT_ID     = os.environ.get("FREEE_HR_CLIENT_ID", "")
+_FREEE_HR_CLIENT_SECRET = os.environ.get("FREEE_HR_CLIENT_SECRET", "")
+_FREEE_HR_REDIRECT_URI  = os.environ.get(
+    "FREEE_HR_REDIRECT_URI",
+    "https://shikonshosai-manual.onrender.com/api/hr/callback",
+)
+HR_TOKEN_PATH = "/外注先共有/400000_CC/shikonshosai/hr_token.json"
+FREEE_HR_API_BASE = "https://api.freee.co.jp/hr/api/v1"
 _stored_refresh_token: str = ""
 _token_lock = None
 FREEE_AUTH_URL  = "https://accounts.secure.freee.co.jp/public_api/authorize"
@@ -188,6 +197,197 @@ async def freee_auth_callback(code: str = Query(...)):
         "<p>このタブを閉じてください。</p>"
         "</body></html>"
     )
+
+# ========================================
+# freee 人事労務 API テスト用エンドポイント
+# ========================================
+
+async def _hr_require_admin(user_id: str):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="user_id required")
+    users_data = await dropbox_get(USERS_PATH) or {"users": []}
+    user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+    if not user or user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="admin only")
+    return user
+
+
+async def _hr_get_token() -> dict:
+    """hr_token.json を読み込む。無ければ None。"""
+    return await dropbox_get(HR_TOKEN_PATH)
+
+
+async def _hr_save_token(access_token: str, refresh_token: str, expires_in: int):
+    expires_at = int(time.time()) + int(expires_in or 3600)
+    await dropbox_save(HR_TOKEN_PATH, {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "expires_at": expires_at,
+    })
+
+
+async def _hr_refresh_access_token(refresh_token: str) -> dict:
+    """refresh_token を使ってアクセストークンを再取得し hr_token.json を更新。"""
+    if not _FREEE_HR_CLIENT_ID or not _FREEE_HR_CLIENT_SECRET:
+        raise HTTPException(status_code=500, detail="FREEE_HR_CLIENT_ID/SECRET 未設定")
+    async with httpx.AsyncClient() as client:
+        r = await client.post(FREEE_TOKEN_URL, data={
+            "grant_type": "refresh_token",
+            "client_id": _FREEE_HR_CLIENT_ID,
+            "client_secret": _FREEE_HR_CLIENT_SECRET,
+            "refresh_token": refresh_token,
+        })
+        if r.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"freee refresh失敗: {r.text}")
+        td = r.json()
+    await _hr_save_token(td["access_token"], td.get("refresh_token", refresh_token), td.get("expires_in", 3600))
+    return await _hr_get_token()
+
+
+async def _hr_get_valid_access_token() -> str:
+    """hr_token.json から有効なアクセストークンを取得。期限切れなら自動リフレッシュ。"""
+    tok = await _hr_get_token()
+    if not tok:
+        raise HTTPException(status_code=401, detail="hr_token 未保存。/api/hr/auth から認証してください")
+    if int(tok.get("expires_at", 0)) - 60 < int(time.time()):
+        if not tok.get("refresh_token"):
+            raise HTTPException(status_code=401, detail="refresh_token なし。再認証してください")
+        tok = await _hr_refresh_access_token(tok["refresh_token"])
+    return tok["access_token"]
+
+
+@app.get("/api/hr/auth")
+async def hr_auth_login(user_id: str = Query(...)):
+    await _hr_require_admin(user_id)
+    if not _FREEE_HR_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="FREEE_HR_CLIENT_ID 未設定")
+    url = (
+        f"{FREEE_AUTH_URL}"
+        f"?client_id={_FREEE_HR_CLIENT_ID}"
+        f"&redirect_uri={_FREEE_HR_REDIRECT_URI}"
+        f"&response_type=code"
+        f"&scope=read"
+    )
+    return RedirectResponse(url)
+
+
+@app.get("/api/hr/callback")
+async def hr_auth_callback(code: str = Query(...)):
+    if not _FREEE_HR_CLIENT_ID or not _FREEE_HR_CLIENT_SECRET:
+        raise HTTPException(status_code=500, detail="FREEE_HR_CLIENT_ID/SECRET 未設定")
+    async with httpx.AsyncClient() as client:
+        r = await client.post(FREEE_TOKEN_URL, data={
+            "grant_type": "authorization_code",
+            "client_id": _FREEE_HR_CLIENT_ID,
+            "client_secret": _FREEE_HR_CLIENT_SECRET,
+            "code": code,
+            "redirect_uri": _FREEE_HR_REDIRECT_URI,
+        })
+        if r.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"トークン取得失敗: {r.text}")
+        td = r.json()
+    await _hr_save_token(td["access_token"], td.get("refresh_token", ""), td.get("expires_in", 3600))
+    # /api/hr/test へリダイレクト（user_id はコールバックでは持たないため、テストページへの案内HTMLを返す）
+    return HTMLResponse(
+        "<html><body style='font-family:sans-serif;padding:40px;text-align:center;'>"
+        "<h2>freee人事労務 認証完了</h2>"
+        "<p>このタブを閉じて、サイドバーの「HR APIテスト」を再度クリックしてください。</p>"
+        "</body></html>"
+    )
+
+
+@app.get("/api/hr/test")
+async def hr_test(user_id: str = Query(...)):
+    await _hr_require_admin(user_id)
+    tok = await _hr_get_token()
+    if not tok:
+        # 未認証なら認証フローへ
+        return RedirectResponse(f"/api/hr/auth?user_id={user_id}")
+    access_token = await _hr_get_valid_access_token()
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        # ① /users/me で company_id を取得
+        me_resp = await client.get(f"{FREEE_HR_API_BASE}/users/me", headers=headers)
+        me_status = me_resp.status_code
+        try:
+            me_data = me_resp.json()
+        except Exception:
+            me_data = {"raw": me_resp.text}
+        if me_status != 200:
+            return JSONResponse(status_code=me_status, content={
+                "step": "users/me", "status": me_status, "body": me_data,
+            })
+        companies = me_data.get("companies", []) if isinstance(me_data, dict) else []
+        company_id = companies[0]["id"] if companies else None
+        if not company_id:
+            return JSONResponse(status_code=400, content={
+                "step": "users/me", "error": "company_id が取得できませんでした", "me": me_data,
+            })
+
+        # ② 従業員一覧
+        emp_resp = await client.get(
+            f"{FREEE_HR_API_BASE}/employees",
+            headers=headers,
+            params={"company_id": company_id, "year": 2026, "month": 5},
+        )
+        emp_status = emp_resp.status_code
+        try:
+            emp_data = emp_resp.json()
+        except Exception:
+            emp_data = {"raw": emp_resp.text}
+        if emp_status != 200:
+            return JSONResponse(content={
+                "users_me": me_data,
+                "company_id": company_id,
+                "employees": {"status": emp_status, "body": emp_data},
+            })
+
+        # ③ 従業員番号 018 の月次勤怠サマリー
+        target_emp = None
+        if isinstance(emp_data, list):
+            target_emp = next(
+                (e for e in emp_data if str(e.get("num") or e.get("emp_code") or e.get("employee_number") or "") == "018"),
+                None,
+            )
+        summary_block = None
+        if target_emp:
+            target_emp_id = target_emp.get("id")
+            sum_resp = await client.get(
+                f"{FREEE_HR_API_BASE}/employees/{target_emp_id}/work_record_summaries/2026/5",
+                headers=headers,
+                params={"company_id": company_id, "work_records": "true"},
+            )
+            try:
+                sum_body = sum_resp.json()
+            except Exception:
+                sum_body = {"raw": sum_resp.text}
+            summary_block = {
+                "employee_id": target_emp_id,
+                "employee_num": target_emp.get("num"),
+                "status": sum_resp.status_code,
+                "body": sum_body,
+            }
+        else:
+            summary_block = {"error": "従業員番号 018 が見つかりませんでした"}
+
+        return JSONResponse(content={
+            "users_me": me_data,
+            "company_id": company_id,
+            "employees": emp_data,
+            "work_record_summary_018": summary_block,
+        })
+
+
+@app.post("/api/hr/refresh")
+async def hr_refresh(user_id: str = Query(...)):
+    await _hr_require_admin(user_id)
+    tok = await _hr_get_token()
+    if not tok or not tok.get("refresh_token"):
+        raise HTTPException(status_code=401, detail="hr_token 未保存。/api/hr/auth から認証してください")
+    new_tok = await _hr_refresh_access_token(tok["refresh_token"])
+    return {"ok": True, "expires_at": new_tok.get("expires_at")}
+
 
 @app.get("/api/manuals")
 async def get_manuals():

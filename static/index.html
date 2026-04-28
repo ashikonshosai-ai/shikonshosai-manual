@@ -386,6 +386,7 @@
       </div>
       <div class="nav-item" id="nav-profile" onclick="showProfile()">👤 マイプロフィール</div>
       <div class="nav-item" id="nav-user-mgmt" style="display:none" onclick="showUserMgmt()">⚙ ユーザー管理</div>
+      <div class="nav-item" id="nav-hr-test" style="display:none" onclick="openHrApiTest()">💼 HR APIテスト</div>
     </div>
     <div class="nav-label" style="padding: 8px 16px 4px;">マニュアル</div>
     <div class="left-pane-list" id="cat-list"></div>
@@ -1183,6 +1184,8 @@ function render() {
   if (navForecast) navForecast.style.display = (['admin', 'leader', 'soumu'].includes(_currentUser?.role)) ? 'flex' : 'none';
   const navIA = document.getElementById('nav-invoice-admin');
   if (navIA) navIA.style.display = (['admin','leader','soumu'].includes(_currentUser?.role)) ? 'flex' : 'none';
+  const navHr = document.getElementById('nav-hr-test');
+  if (navHr) navHr.style.display = (_currentUser?.role === 'admin') ? 'flex' : 'none';
   // 左ペイン
   const catList = document.getElementById('cat-list');
   catList.innerHTML = '';
@@ -1377,6 +1380,12 @@ function renderTodayUsers() {
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;">${avatars}</div>
     </div>`;
+}
+
+function openHrApiTest() {
+  if (!_currentUser?.id) { alert('ログインが必要です'); return; }
+  // テスト結果のJSON or 認証フローを別タブで開く
+  window.open('/api/hr/test?user_id=' + encodeURIComponent(_currentUser.id), '_blank');
 }
 
 async function showHome() {
