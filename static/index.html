@@ -387,6 +387,7 @@
       <div class="nav-item" id="nav-profile" onclick="showProfile()">👤 マイプロフィール</div>
       <div class="nav-item" id="nav-user-mgmt" style="display:none" onclick="showUserMgmt()">⚙ ユーザー管理</div>
       <div class="nav-item" id="nav-hr-test" style="display:none" onclick="openHrApiTest()">💼 HR APIテスト</div>
+      <div class="nav-item" id="nav-hr-loc" style="display:none" onclick="openHrLocationTest()">📍 HR 位置情報テスト</div>
     </div>
     <div class="nav-label" style="padding: 8px 16px 4px;">マニュアル</div>
     <div class="left-pane-list" id="cat-list"></div>
@@ -1186,6 +1187,8 @@ function render() {
   if (navIA) navIA.style.display = (['admin','leader','soumu'].includes(_currentUser?.role)) ? 'flex' : 'none';
   const navHr = document.getElementById('nav-hr-test');
   if (navHr) navHr.style.display = (_currentUser?.role === 'admin') ? 'flex' : 'none';
+  const navHrLoc = document.getElementById('nav-hr-loc');
+  if (navHrLoc) navHrLoc.style.display = (_currentUser?.role === 'admin') ? 'flex' : 'none';
   // 左ペイン
   const catList = document.getElementById('cat-list');
   catList.innerHTML = '';
@@ -1380,6 +1383,33 @@ function renderTodayUsers() {
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;">${avatars}</div>
     </div>`;
+}
+
+async function openHrLocationTest() {
+  if (!_currentUser?.id) { alert('ログインが必要です'); return; }
+  const date = prompt('調査する日付（YYYY-MM-DD）', '2026-04-23');
+  if (!date) return;
+  const headers = { 'user-id': _currentUser.id };
+  try {
+    const r = await fetch('/api/hr/test_location?date=' + encodeURIComponent(date), { headers });
+    if (r.status === 401) {
+      const ar = await fetch('/api/hr/auth', { headers });
+      const adata = await ar.json().catch(() => ({}));
+      if (adata.auth_url) window.open(adata.auth_url, '_blank');
+      else alert('認証URL取得失敗');
+      return;
+    }
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      alert('位置情報テスト失敗: ' + (err.detail || r.status));
+      return;
+    }
+    const json = await r.json();
+    const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
+    window.open(URL.createObjectURL(blob), '_blank');
+  } catch (e) {
+    alert('通信エラー: ' + e.message);
+  }
 }
 
 async function openHrApiTest() {
