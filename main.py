@@ -263,10 +263,12 @@ async def hr_auth_login(user_id: str = Header(None, alias="user-id")):
     await _hr_require_admin(user_id)
     if not _FREEE_HR_CLIENT_ID:
         raise HTTPException(status_code=500, detail="FREEE_HR_CLIENT_ID 未設定")
+    from urllib.parse import quote
+    # 認可URL: scope=read のみ指定（人事労務スコープはアプリ権限設定で付与済み）
     url = (
         f"{FREEE_AUTH_URL}"
-        f"?client_id={_FREEE_HR_CLIENT_ID}"
-        f"&redirect_uri={_FREEE_HR_REDIRECT_URI}"
+        f"?client_id={quote(_FREEE_HR_CLIENT_ID, safe='')}"
+        f"&redirect_uri={quote(_FREEE_HR_REDIRECT_URI, safe='')}"
         f"&response_type=code"
         f"&scope=read"
     )
