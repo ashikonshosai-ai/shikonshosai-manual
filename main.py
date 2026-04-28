@@ -204,7 +204,7 @@ async def freee_auth_callback(code: str = Query(...)):
 
 async def _hr_require_admin(user_id: str):
     if not user_id:
-        raise HTTPException(status_code=401, detail="user_id required")
+        raise HTTPException(status_code=401, detail="ログインが必要です")
     users_data = await dropbox_get(USERS_PATH) or {"users": []}
     user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
     if not user or user.get("role") != "admin":
@@ -257,7 +257,9 @@ async def _hr_get_valid_access_token() -> str:
 
 
 @app.get("/api/hr/auth")
-async def hr_auth_login(user_id: str = Query(...)):
+async def hr_auth_login(user_id: str = Header(None, alias="user-id")):
+    """既存パターンと同じ user-id ヘッダーで認証。
+    レスポンスは freee 認可 URL を含む JSON（フロント側で window.open する）。"""
     await _hr_require_admin(user_id)
     if not _FREEE_HR_CLIENT_ID:
         raise HTTPException(status_code=500, detail="FREEE_HR_CLIENT_ID 未設定")
@@ -268,7 +270,7 @@ async def hr_auth_login(user_id: str = Query(...)):
         f"&response_type=code"
         f"&scope=read"
     )
-    return RedirectResponse(url)
+    return {"auth_url": url}
 
 
 @app.get("/api/hr/callback")
@@ -297,12 +299,12 @@ async def hr_auth_callback(code: str = Query(...)):
 
 
 @app.get("/api/hr/test")
-async def hr_test(user_id: str = Query(...)):
+async def hr_test(user_id: str = Header(None, alias="user-id")):
     await _hr_require_admin(user_id)
     tok = await _hr_get_token()
     if not tok:
-        # 未認証なら認証フローへ
-        return RedirectResponse(f"/api/hr/auth?user_id={user_id}")
+        # 未認証時は 401 を返し、フロント側で /api/hr/auth → freee 認可へ誘導
+        raise HTTPException(status_code=401, detail="hr_token 未保存。/api/hr/auth から認証してください")
     access_token = await _hr_get_valid_access_token()
     headers = {"Authorization": f"Bearer {access_token}"}
 
@@ -380,7 +382,7 @@ async def hr_test(user_id: str = Query(...)):
 
 
 @app.post("/api/hr/refresh")
-async def hr_refresh(user_id: str = Query(...)):
+async def hr_refresh(user_id: str = Header(None, alias="user-id")):
     await _hr_require_admin(user_id)
     tok = await _hr_get_token()
     if not tok or not tok.get("refresh_token"):
