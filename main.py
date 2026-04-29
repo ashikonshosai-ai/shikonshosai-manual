@@ -1,4 +1,4 @@
-import os, json, httpx, asyncio, time, io, zipfile, calendar, csv
+import os, json, httpx, asyncio, time, io, zipfile, calendar, csv, re
 from uuid import uuid4
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -474,50 +474,142 @@ async def hr_refresh(user_id: str = Header(None, alias="user-id")):
 
 
 ATTENDANCE_BASE = "/外注先共有/400000_CC/shikonshosai/attendance"
+PAYROLL_MONTHLY_HOURS = 166      # 月平均所定時間（固定）
+PAYROLL_TEIGAKU_ZANGYO = 55000   # 定額残業手当（固定）
 
 
 def _attendance_path(employee_id: int, year_month: str) -> str:
     return f"{ATTENDANCE_BASE}/{employee_id}_{year_month}.json"
 
 
-def _month_dates(year_month: str):
-    """YYYY-MM の月初〜月末日付リスト（date型）を返す"""
-    y, m = year_month.split("-")
-    y = int(y); m = int(m)
-    last = calendar.monthrange(y, m)[1]
-    return [date(y, m, d) for d in range(1, last + 1)]
+def _to_float(s):
+    try:
+        return float(str(s).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
 
 
-def _payroll_period_dates(year_month: str):
-    """給与締め期間の日付リスト（前月21日〜当月20日）。
-    例: "2026-04" → 2026-03-21 〜 2026-04-20"""
-    y, m = year_month.split("-")
-    y = int(y); m = int(m)
-    prev_y = y if m > 1 else y - 1
-    prev_m = m - 1 if m > 1 else 12
-    start = date(prev_y, prev_m, 21)
-    end = date(y, m, 20)
-    out = []
-    cur = start
-    while cur <= end:
-        out.append(cur)
-        cur = cur + timedelta(days=1)
-    return out
+def _time_only(s):
+    if not s:
+        return ""
+    m = re.search(r"(\d{1,2}):(\d{2})", str(s))
+    return f"{int(m.group(1)):02d}:{m.group(2)}" if m else ""
 
 
-def _normalize_work_record(date_str: str, body) -> dict:
-    """freee /work_records/{date} のレスポンスを 1 行分に正規化"""
-    if not isinstance(body, dict):
-        body = {}
+def _parse_tot_csv(data: bytes):
+    """TOT 勤怠 CSV（Shift-JIS）をパースして year_month と records を返す。
+    集計開始日が >=21 日なら翌月を year_month とする（例: 2026-01-21 → 2026-02）。"""
+    text = data.decode("cp932", errors="replace")
+    reader = csv.reader(io.StringIO(text))
+    rows = [r for r in reader]
+    # ヘッダー行を検出（"日付" を含む行）
+    header_idx = None
+    for i, row in enumerate(rows):
+        if any(("日付" in (c or "")) or ("年月日" in (c or "")) for c in row):
+            header_idx = i
+            break
+    if header_idx is None:
+        raise HTTPException(400, "CSV のヘッダー行が見つかりません（『日付』を含む列が必要）")
+    headers = rows[header_idx]
+
+    def col_index(*keys):
+        for k in keys:
+            for i, h in enumerate(headers):
+                if k in (h or ""):
+                    return i
+        return None
+
+    idx_date = col_index("日付", "年月日")
+    idx_kind = col_index("勤務日種別", "種別")
+    idx_kyuka = col_index("休暇")
+    idx_note = col_index("備考")
+    idx_in = col_index("出勤")
+    idx_out = col_index("退勤")
+    idx_sched = col_index("所定")
+    idx_overtime = col_index("残業")
+    idx_total = col_index("労働")
+
+    def get(row, idx):
+        if idx is None or idx >= len(row):
+            return ""
+        return (row[idx] or "").strip()
+
+    records = []
+    for row in rows[header_idx + 1:]:
+        if not row or all(not (c or "").strip() for c in row):
+            continue
+        date_raw = get(row, idx_date)
+        m = re.match(r"(\d{4})/(\d{1,2})/(\d{1,2})", date_raw)
+        if not m:
+            continue
+        date_iso = f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+        note = get(row, idx_note)
+        records.append({
+            "date": date_iso,
+            "day_kind": get(row, idx_kind),
+            "leave_type": get(row, idx_kyuka),
+            "note": note,
+            "is_telework": "在宅" in note,
+            "clock_in": _time_only(get(row, idx_in)),
+            "clock_out": _time_only(get(row, idx_out)),
+            "scheduled_h": _to_float(get(row, idx_sched)),
+            "overtime_h": _to_float(get(row, idx_overtime)),
+            "total_h": _to_float(get(row, idx_total)),
+        })
+    if not records:
+        raise HTTPException(400, "勤怠データが1件も取得できませんでした")
+    # year_month: 開始日 >=21 なら翌月
+    y, mo, d = map(int, records[0]["date"].split("-"))
+    if d >= 21:
+        if mo == 12:
+            y += 1; mo = 1
+        else:
+            mo += 1
+    year_month = f"{y}-{mo:02d}"
+    return year_month, records
+
+
+def _attendance_summary(records):
+    work_days = 0
+    total_overtime_h = 0.0
+    telework_days = 0
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        if r.get("overtime_h") is not None or r.get("scheduled_h") or r.get("clock_in"):
+            work_days += 1
+        if r.get("overtime_h"):
+            total_overtime_h += float(r["overtime_h"] or 0)
+        if r.get("is_telework"):
+            telework_days += 1
     return {
-        "date": date_str,
-        "clock_in_at": body.get("clock_in_at"),
-        "clock_out_at": body.get("clock_out_at"),
-        "normal_work_mins": body.get("normal_work_mins") or 0,
-        "total_overtime_work_mins": body.get("total_overtime_work_mins") or 0,
-        "is_absence": bool(body.get("is_absence")),
-        "note": body.get("note") or "",
+        "work_days": work_days,
+        "total_overtime_h": round(total_overtime_h, 2),
+        "telework_days": telework_days,
     }
+
+
+@app.post("/api/hr/attendance/upload")
+async def hr_attendance_upload(
+    file: UploadFile = File(...),
+    employee_id: int = Form(...),
+    user_id: str = Header(None, alias="user-id"),
+):
+    """TOT CSV をアップロード→パース→Dropbox保存"""
+    await _hr_require_admin(user_id)
+    raw = await file.read()
+    year_month, records = _parse_tot_csv(raw)
+    payload = {
+        "year_month": year_month,
+        "employee_id": int(employee_id),
+        "records": records,
+        "summary": _attendance_summary(records),
+        "saved_at": _now_iso(),
+        "saved_by": user_id,
+        "source": "tot_csv",
+    }
+    await dropbox_save(_attendance_path(int(employee_id), year_month), payload)
+    return payload
 
 
 @app.get("/api/hr/attendance")
@@ -526,62 +618,14 @@ async def hr_get_attendance(
     year_month: str = Query(...),
     employee_id: int = Query(...),
 ):
-    """月次勤怠データを freee 人事労務 API から日別取得して返す。
-    Dropbox に保存済みの編集データがあればそれを優先（is_telework / note 編集が残るように）。"""
+    """Dropbox に保存済みの勤怠データを返す。無ければ 404。"""
     await _hr_require_admin(user_id)
-    access_token = await _hr_get_valid_access_token()
-    headers = {"Authorization": f"Bearer {access_token}"}
-
-    # company_id 取得
-    async with httpx.AsyncClient(timeout=30) as client:
-        me_resp = await client.get(f"{FREEE_HR_API_BASE}/users/me", headers=headers)
-        if me_resp.status_code != 200:
-            raise HTTPException(502, f"users/me 失敗: {me_resp.text}")
-        companies = (me_resp.json() or {}).get("companies", [])
-        company_id = companies[0]["id"] if companies else None
-    if not company_id:
-        raise HTTPException(400, "company_id が取得できませんでした")
-
-    # 既存の編集済みデータ（あれば）
-    saved = await dropbox_get(_attendance_path(employee_id, year_month)) or {}
-    saved_map = {r["date"]: r for r in (saved.get("records") or []) if isinstance(r, dict) and r.get("date")}
-
-    # 給与締め期間（前月21日〜当月20日）で取得
-    dates = _payroll_period_dates(year_month)
-    sem = asyncio.Semaphore(4)
-    records = [None] * len(dates)
-
-    async def fetch_one(i, d):
-        date_str = d.isoformat()
-        async with sem:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.get(
-                    f"{FREEE_HR_API_BASE}/employees/{employee_id}/work_records/{date_str}",
-                    headers=headers,
-                    params={"company_id": company_id},
-                )
-                try:
-                    body = resp.json() if resp.status_code == 200 else {}
-                except Exception:
-                    body = {}
-        rec = _normalize_work_record(date_str, body)
-        # 編集済みデータの is_telework / note を上書き反映
-        if date_str in saved_map:
-            sv = saved_map[date_str]
-            if "is_telework" in sv:
-                rec["is_telework"] = bool(sv["is_telework"])
-            if sv.get("note"):
-                rec["note"] = sv["note"]
-        rec.setdefault("is_telework", False)
-        records[i] = rec
-
-    await asyncio.gather(*[fetch_one(i, d) for i, d in enumerate(dates)])
-
-    return {
-        "year_month": year_month,
-        "employee_id": employee_id,
-        "records": records,
-    }
+    saved = await dropbox_get(_attendance_path(int(employee_id), year_month))
+    if not saved:
+        raise HTTPException(404, "保存済み勤怠データがありません。CSV をアップロードしてください")
+    # summary は最新で再計算
+    saved["summary"] = _attendance_summary(saved.get("records") or [])
+    return saved
 
 
 @app.post("/api/hr/attendance")
@@ -589,23 +633,25 @@ async def hr_save_attendance(
     request: Request,
     user_id: str = Header(None, alias="user-id"),
 ):
-    """編集済み勤怠データを Dropbox に保存"""
+    """編集済み勤怠データを Dropbox に上書き保存"""
     await _hr_require_admin(user_id)
     body = await request.json()
     employee_id = body.get("employee_id")
     year_month = body.get("year_month")
     if not employee_id or not year_month:
         raise HTTPException(400, "employee_id / year_month が必要です")
+    records = body.get("records") or []
     payload = {
         "year_month": year_month,
         "employee_id": int(employee_id),
-        "records": body.get("records") or [],
-        "telework_days": body.get("telework_days"),
+        "records": records,
+        "summary": _attendance_summary(records),
         "saved_at": _now_iso(),
         "saved_by": user_id,
+        "source": body.get("source") or "manual_edit",
     }
     await dropbox_save(_attendance_path(int(employee_id), year_month), payload)
-    return {"status": "ok"}
+    return {"status": "ok", "summary": payload["summary"]}
 
 
 @app.post("/api/hr/payroll")
@@ -613,54 +659,121 @@ async def hr_payroll(
     request: Request,
     user_id: str = Header(None, alias="user-id"),
 ):
-    """保存済み勤怠データから残業手当・在宅手当を仮計算して返す（freee送信は行わない）"""
+    """保存済み勤怠データと基礎給与から残業・在宅手当を計算して返す（freee送信なし）。"""
     await _hr_require_admin(user_id)
     body = await request.json()
     employee_id = int(body.get("employee_id") or 0)
     year_month = body.get("year_month") or ""
+    kiso_kyuyo = int(body.get("kiso_kyuyo") or 0)
     if not employee_id or not year_month:
         raise HTTPException(400, "employee_id / year_month が必要です")
+    if kiso_kyuyo <= 0:
+        raise HTTPException(400, "kiso_kyuyo（基礎給与）が必要です")
     saved = await dropbox_get(_attendance_path(employee_id, year_month))
     if not saved:
-        raise HTTPException(404, "保存済み勤怠データがありません。先に保存してください")
+        raise HTTPException(404, "保存済み勤怠データがありません。CSV をアップロードしてください")
     records = saved.get("records") or []
 
-    total_work_mins = 0
-    total_overtime_mins = 0
-    work_days = 0
+    jikyu = kiso_kyuyo / PAYROLL_MONTHLY_HOURS
+    jikyu_125 = jikyu * 1.25
+    minashi_zangyo_h = PAYROLL_TEIGAKU_ZANGYO / jikyu_125 if jikyu_125 > 0 else 0
+
+    jitsu_zangyo_h = 0.0
     telework_days = 0
+    work_days = 0
     for r in records:
         if not isinstance(r, dict):
             continue
-        nw = int(r.get("normal_work_mins") or 0)
-        ow = int(r.get("total_overtime_work_mins") or 0)
-        total_work_mins += nw + ow
-        total_overtime_mins += ow
-        if (nw + ow) > 0 or r.get("clock_in_at"):
-            work_days += 1
+        if r.get("overtime_h"):
+            jitsu_zangyo_h += float(r["overtime_h"] or 0)
         if r.get("is_telework"):
             telework_days += 1
+        if r.get("overtime_h") is not None or r.get("scheduled_h") or r.get("clock_in"):
+            work_days += 1
 
-    # 仮置きロジック
-    HOURLY_RATE = 2000  # 仮
-    OT_THRESHOLD_MINS = 55 * 60  # 定額残業 55h
-    over_extra_mins = max(0, total_overtime_mins - OT_THRESHOLD_MINS)
-    overtime_allowance = int(round((over_extra_mins / 60) * HOURLY_RATE * 1.25))
-    telework_allowance = 0
-    if work_days > 0:
-        telework_allowance = int(round((5000 / work_days) * telework_days))
+    if jitsu_zangyo_h > minashi_zangyo_h:
+        choka_h = jitsu_zangyo_h - minashi_zangyo_h
+        choka_kin = int(round(jikyu_125 * choka_h))
+    else:
+        choka_h = 0
+        choka_kin = 0
+
+    zaitaku_teate = int(round(5000 * telework_days / work_days)) if work_days > 0 else 0
 
     return {
         "year_month": year_month,
         "employee_id": employee_id,
-        "total_work_mins": total_work_mins,
-        "total_overtime_mins": total_overtime_mins,
-        "work_days": work_days,
+        "kiso_kyuyo": kiso_kyuyo,
+        "jikyu": round(jikyu, 2),
+        "jikyu_125": round(jikyu_125, 2),
+        "minashi_zangyo_h": round(minashi_zangyo_h, 2),
+        "jitsu_zangyo_h": round(jitsu_zangyo_h, 2),
+        "choka_h": round(choka_h, 2),
+        "choka_kin": choka_kin,
         "telework_days": telework_days,
-        "overtime_allowance": overtime_allowance,
-        "telework_allowance": telework_allowance,
-        "note": "計算ロジック仮置き：超過残業手当・在宅手当は社労士確認待ち",
+        "work_days": work_days,
+        "zaitaku_teate": zaitaku_teate,
+        "note": "在宅手当は廃止予定・仮置き。超過残業手当計算式は社労士確認待ち。",
     }
+
+
+@app.post("/api/hr/payroll/submit")
+async def hr_payroll_submit(
+    request: Request,
+    user_id: str = Header(None, alias="user-id"),
+):
+    """freee 人事労務の給与明細に手当を書き込むテスト用エンドポイント。
+    実装は仕様未確定のため PUT /salaries/employee_pay_statements/{year}/{month} を試行し、
+    レスポンスをそのまま返す（運用前に必ず人事労務APIドキュメントで正式な
+    エンドポイントとペイロード形式を確認すること）。"""
+    await _hr_require_admin(user_id)
+    body = await request.json()
+    employee_id = int(body.get("employee_id") or 0)
+    year_month = body.get("year_month") or ""
+    choka_kin = int(body.get("choka_kin") or 0)
+    zaitaku_teate = int(body.get("zaitaku_teate") or 0)
+    if not employee_id or not year_month:
+        raise HTTPException(400, "employee_id / year_month が必要です")
+    y, mo = year_month.split("-")
+    y = int(y); mo = int(mo)
+
+    access_token = await _hr_get_valid_access_token()
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        me_resp = await client.get(f"{FREEE_HR_API_BASE}/users/me", headers=headers)
+        if me_resp.status_code != 200:
+            raise HTTPException(502, f"users/me 失敗: {me_resp.text}")
+        companies = (me_resp.json() or {}).get("companies", [])
+        company_id = companies[0]["id"] if companies else None
+        if not company_id:
+            raise HTTPException(400, "company_id が取得できませんでした")
+
+        url = f"{FREEE_HR_API_BASE}/salaries/employee_pay_statements/{y}/{mo:02d}"
+        payload = {
+            "company_id": company_id,
+            "employee_id": employee_id,
+            "allowances": [
+                {"name": "超過残業手当", "amount": choka_kin},
+                {"name": "在宅手当", "amount": zaitaku_teate},
+            ],
+        }
+        print(f"[hr-payroll-submit] PUT {url} payload={payload}")
+        resp = await client.put(url, headers=headers, json=payload)
+        try:
+            resp_body = resp.json()
+        except Exception:
+            resp_body = {"raw": resp.text}
+        print(f"[hr-payroll-submit] status={resp.status_code} body={str(resp_body)[:300]}")
+
+    return JSONResponse({
+        "request": payload,
+        "freee_status": resp.status_code,
+        "freee_response": resp_body,
+        "note": "freee人事労務 給与明細APIの正式仕様確認後にエンドポイント／ペイロードを調整してください",
+    })
 
 
 @app.get("/api/manuals")

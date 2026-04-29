@@ -1389,12 +1389,13 @@ function renderTodayUsers() {
     </div>`;
 }
 
-// ==== 勤怠管理 ====================================================
+// ==== 勤怠管理 (TOT CSV アップロード方式) ===================================
 const ATT_DEFAULT_EMPLOYEE_ID = 3914999; // 落合さん固定（暫定）
 let _attState = {
   year_month: '',
   employee_id: ATT_DEFAULT_EMPLOYEE_ID,
   records: [],
+  summary: null,
   dirty: new Set(),
 };
 
@@ -1409,39 +1410,16 @@ function _attShiftMonth(ymStr, delta) {
 }
 
 function _attPeriodLabel(ymStr) {
-  // "2026-04" → "2026年3月21日〜4月20日"
   const [y, m] = ymStr.split('-').map(Number);
   const prevY = m > 1 ? y : y - 1;
   const prevM = m > 1 ? m - 1 : 12;
   return `${prevY}年${prevM}月21日〜${m}月20日`;
 }
 
-function _attMinsToHM(mins) {
-  const m = Math.max(0, Math.round(mins || 0));
-  const h = Math.floor(m / 60);
-  const mm = m % 60;
-  return `${h}:${String(mm).padStart(2, '0')}`;
-}
-
-function _attTimeOnly(iso) {
-  if (!iso) return '';
-  // freeeの ISO（"2026-04-01T09:00:00.000+09:00"）→ "09:00"
-  const s = String(iso);
-  const m = s.match(/T(\d{2}):(\d{2})/);
-  return m ? `${m[1]}:${m[2]}` : '';
-}
-
-function _attTimeToIso(date_str, hhmm) {
-  if (!hhmm) return null;
-  // 既存ISOの形式を保ちつつ時刻だけ書き換える
-  return `${date_str}T${hhmm}:00.000+09:00`;
-}
-
 async function showAttendance() {
   if (!_attState.year_month) {
     _attState.year_month = _attYM(new Date());
   }
-  // attendance-view を動的作成（初回のみ）
   let view = document.getElementById('attendance-view');
   if (!view) {
     view = document.createElement('div');
@@ -1450,41 +1428,56 @@ async function showAttendance() {
   }
   setView('attendance');
   render();
+  const savedKiso = localStorage.getItem('att_kiso_kyuyo') || '';
   view.innerHTML = `
     <div style="padding:16px">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
-        <h2 style="font-size:18px;margin:0;flex:0 0 auto">🕐 勤怠管理</h2>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <h2 style="font-size:18px;margin:0">🕐 勤怠管理</h2>
         <button class="btn-sec" onclick="attShift(-1)">← 前月</button>
         <span id="att-ym" style="font-size:15px;font-weight:600">${_attState.year_month}</span>
         <span id="att-period" style="font-size:12px;color:#475569">（${_attPeriodLabel(_attState.year_month)}）</span>
         <button class="btn-sec" onclick="attShift(1)">翌月 →</button>
         <span style="margin-left:10px;font-size:12px;color:#64748b">対象：落合さん（ID:${ATT_DEFAULT_EMPLOYEE_ID}）</span>
-        <button class="btn-pri" style="margin-left:auto" onclick="attLoad()">TOTデータ取得</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+        <input type="file" id="att-file" accept=".csv" style="display:none" onchange="attUploadCsv(this)">
+        <button class="btn-pri" onclick="document.getElementById('att-file').click()">📤 CSVアップロード</button>
+        <button class="btn-sec" onclick="attLoadSaved()">📂 保存済みデータ読み込み</button>
+        <span style="font-size:12px;color:#64748b;margin-left:auto">基礎給与</span>
+        <input type="number" id="att-kiso" value="${savedKiso}" placeholder="例: 294742"
+          style="width:120px;padding:5px 8px;border:0.5px solid #cbd5e1;border-radius:4px;font-size:13px"
+          onchange="localStorage.setItem('att_kiso_kyuyo', this.value)">
+        <span style="font-size:12px;color:#64748b">円</span>
       </div>
       <div id="att-body">
-        <p style="color:#94a3b8;font-size:13px">「TOTデータ取得」をクリックして当月の勤怠を取り込みます。</p>
+        <p style="color:#94a3b8;font-size:13px">「CSVアップロード」または「保存済みデータ読み込み」を実行してください。</p>
       </div>
     </div>`;
-  // 共通スタイル（インラインで簡素に）
   if (!document.getElementById('att-style')) {
     const st = document.createElement('style');
     st.id = 'att-style';
     st.textContent = `
-      .att-table{border-collapse:collapse;width:100%;font-size:12.5px}
-      .att-scroll{overflow:auto;max-height:calc(100vh - 300px);border:0.5px solid #e2e8f0;border-radius:6px}
-      .att-table{border-collapse:separate;border-spacing:0}
-      .att-table th,.att-table td{border-right:0.5px solid #e2e8f0;border-bottom:0.5px solid #e2e8f0;padding:4px 6px;text-align:center;background:#fff}
+      .att-scroll{overflow:auto;max-height:calc(100vh - 360px);border:0.5px solid #e2e8f0;border-radius:6px}
+      .att-table{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px}
+      .att-table th,.att-table td{border-right:0.5px solid #e2e8f0;border-bottom:0.5px solid #e2e8f0;padding:4px 6px;text-align:center;background:#fff;white-space:nowrap}
       .att-table th{background:#f8fafc;font-weight:600;position:sticky;top:0;z-index:1;box-shadow:inset 0 -0.5px 0 #e2e8f0}
       .att-table tr.dirty td{background:#fff7ed}
       .att-table input[type=time]{width:80px;padding:2px 4px;font-size:12px;border:0.5px solid #cbd5e1;border-radius:3px}
-      .att-table input[type=text]{width:100%;padding:2px 4px;font-size:12px;border:0.5px solid #cbd5e1;border-radius:3px}
       .att-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:14px}
       .att-summary > div{border:0.5px solid #e2e8f0;border-radius:6px;padding:8px 10px;background:#fafbfc;text-align:center}
       .att-summary .v{font-size:18px;font-weight:700;color:#1d4ed8}
       .att-summary .l{font-size:11px;color:#64748b;margin-top:2px}
       .btn-pri{background:#1d4ed8;color:#fff;border:none;border-radius:5px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer}
+      .btn-pri:hover{background:#1e40af}
       .btn-sec{background:#fff;color:#374151;border:0.5px solid #d1d5db;border-radius:5px;padding:5px 12px;font-size:13px;cursor:pointer}
       .btn-sec:hover{background:#f9fafb}
+      .att-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:9999}
+      .att-modal{background:#fff;border-radius:8px;padding:20px 24px;max-width:520px;width:90%;max-height:80vh;overflow:auto}
+      .att-modal h3{font-size:16px;font-weight:700;margin:0 0 12px}
+      .att-modal table{width:100%;font-size:13px;border-collapse:collapse}
+      .att-modal td{padding:5px 8px;border-bottom:0.5px solid #e5e7eb}
+      .att-modal td:first-child{color:#64748b;width:50%}
+      .att-modal td:last-child{text-align:right;font-weight:600}
     `;
     document.head.appendChild(st);
   }
@@ -1495,24 +1488,61 @@ function attShift(delta) {
   document.getElementById('att-ym').textContent = _attState.year_month;
   const periodEl = document.getElementById('att-period');
   if (periodEl) periodEl.textContent = `（${_attPeriodLabel(_attState.year_month)}）`;
-  document.getElementById('att-body').innerHTML = '<p style="color:#94a3b8;font-size:13px">「TOTデータ取得」をクリックして当月の勤怠を取り込みます。</p>';
+  document.getElementById('att-body').innerHTML = '<p style="color:#94a3b8;font-size:13px">「CSVアップロード」または「保存済みデータ読み込み」を実行してください。</p>';
   _attState.records = [];
+  _attState.summary = null;
   _attState.dirty.clear();
 }
 
-async function attLoad() {
+async function attUploadCsv(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
   const body = document.getElementById('att-body');
-  body.innerHTML = '<p style="color:#94a3b8;font-size:13px">読み込み中…（数秒かかります）</p>';
+  body.innerHTML = '<p style="color:#94a3b8;font-size:13px">CSVを送信中…</p>';
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('employee_id', String(_attState.employee_id));
+  try {
+    const r = await fetch('/api/hr/attendance/upload', {
+      method: 'POST',
+      headers: { 'user-id': _currentUser.id },
+      body: fd,
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      body.innerHTML = `<p style="color:#dc2626;font-size:13px">アップロード失敗: ${err.detail || r.status}</p>`;
+      return;
+    }
+    const data = await r.json();
+    _attState.year_month = data.year_month;
+    _attState.records = data.records || [];
+    _attState.summary = data.summary || null;
+    _attState.dirty.clear();
+    document.getElementById('att-ym').textContent = _attState.year_month;
+    const periodEl = document.getElementById('att-period');
+    if (periodEl) periodEl.textContent = `（${_attPeriodLabel(_attState.year_month)}）`;
+    attRender();
+  } catch (e) {
+    body.innerHTML = `<p style="color:#dc2626;font-size:13px">通信エラー: ${e.message}</p>`;
+  }
+}
+
+async function attLoadSaved() {
+  const body = document.getElementById('att-body');
+  body.innerHTML = '<p style="color:#94a3b8;font-size:13px">読み込み中…</p>';
   const headers = { 'user-id': _currentUser.id };
   try {
     const url = `/api/hr/attendance?year_month=${_attState.year_month}&employee_id=${_attState.employee_id}`;
     const r = await fetch(url, { headers });
+    if (r.status === 404) {
+      body.innerHTML = '<p style="color:#94a3b8;font-size:13px">保存済みデータがありません。CSVをアップロードしてください。</p>';
+      return;
+    }
     if (r.status === 401) {
       const ar = await fetch('/api/hr/auth', { headers });
       const ad = await ar.json().catch(() => ({}));
       if (ad.auth_url) window.open(ad.auth_url, '_blank');
-      else alert('認証URL取得失敗');
-      body.innerHTML = '<p style="color:#dc2626;font-size:13px">freee認証が必要です。別タブで認証後、再度「TOTデータ取得」を押してください。</p>';
       return;
     }
     if (!r.ok) {
@@ -1522,11 +1552,19 @@ async function attLoad() {
     }
     const data = await r.json();
     _attState.records = data.records || [];
+    _attState.summary = data.summary || null;
     _attState.dirty.clear();
     attRender();
   } catch (e) {
     body.innerHTML = `<p style="color:#dc2626;font-size:13px">通信エラー: ${e.message}</p>`;
   }
+}
+
+function _attDayKindStyle(kind) {
+  if (!kind) return '';
+  if (kind.indexOf('法定休日') >= 0) return 'color:#dc2626';
+  if (kind.indexOf('法定外') >= 0) return 'color:#2563eb';
+  return '';
 }
 
 function attRender() {
@@ -1535,74 +1573,62 @@ function attRender() {
   const rows = _attState.records.map((r, i) => {
     const d = new Date(r.date);
     const w = wd[d.getDay()];
-    const isWeekend = (d.getDay() === 0 || d.getDay() === 6);
     const dirty = _attState.dirty.has(r.date) ? 'dirty' : '';
-    return `<tr class="${dirty}" data-date="${r.date}" style="${isWeekend?'background:#f8fafc':''}">
-      <td>${r.date.slice(5)}<br><span style="font-size:10px;color:${d.getDay()===0?'#dc2626':d.getDay()===6?'#2563eb':'#94a3b8'}">${w}</span></td>
-      <td><input type="time" value="${_attTimeOnly(r.clock_in_at)}" onchange="attEdit(${i},'clock_in_at',this.value)"></td>
-      <td><input type="time" value="${_attTimeOnly(r.clock_out_at)}" onchange="attEdit(${i},'clock_out_at',this.value)"></td>
-      <td>${_attMinsToHM(r.normal_work_mins)}</td>
-      <td>${_attMinsToHM(r.total_overtime_work_mins)}</td>
+    const dColor = d.getDay() === 0 ? '#dc2626' : d.getDay() === 6 ? '#2563eb' : '#94a3b8';
+    return `<tr class="${dirty}" data-date="${r.date}">
+      <td>${r.date.slice(5)}<br><span style="font-size:10px;color:${dColor}">${w}</span></td>
+      <td style="${_attDayKindStyle(r.day_kind)}">${(r.day_kind||'').replace(/"/g,'&quot;')}</td>
+      <td style="font-size:11px;color:#64748b">${(r.leave_type||'').replace(/"/g,'&quot;')}</td>
+      <td><input type="time" value="${r.clock_in||''}" onchange="attEdit(${i},'clock_in',this.value)"></td>
+      <td><input type="time" value="${r.clock_out||''}" onchange="attEdit(${i},'clock_out',this.value)"></td>
+      <td>${r.overtime_h != null ? r.overtime_h.toFixed(2) : ''}</td>
       <td><input type="checkbox" ${r.is_telework?'checked':''} onchange="attEdit(${i},'is_telework',this.checked)"></td>
-      <td><input type="text" value="${(r.note||'').replace(/"/g,'&quot;')}" onchange="attEdit(${i},'note',this.value)"></td>
+      <td style="font-size:11px;color:#64748b;text-align:left;max-width:200px;overflow:hidden;text-overflow:ellipsis">${(r.note||'').replace(/</g,'&lt;')}</td>
     </tr>`;
   }).join('');
-  // サマリー
-  let totalMins = 0, otMins = 0, days = 0, telework = 0;
-  _attState.records.forEach(r => {
-    totalMins += (r.normal_work_mins||0) + (r.total_overtime_work_mins||0);
-    otMins += (r.total_overtime_work_mins||0);
-    if ((r.normal_work_mins||0) > 0 || r.clock_in_at) days++;
-    if (r.is_telework) telework++;
-  });
-  const HOURLY = 2000, OT_THRESH = 55*60;
-  const otExtra = Math.max(0, otMins - OT_THRESH);
-  const otAllow = Math.round((otExtra/60) * HOURLY * 1.25);
-  const teleAllow = days > 0 ? Math.round((5000/days) * telework) : 0;
 
+  const s = _attState.summary || { work_days: 0, total_overtime_h: 0, telework_days: 0 };
   body.innerHTML = `
     <div class="att-scroll">
       <table class="att-table">
         <thead><tr>
-          <th>日付</th><th>出勤</th><th>退勤</th><th>労働</th><th>残業</th><th>在宅</th><th>備考</th>
+          <th>日付</th><th>勤務日種別</th><th>休暇区分</th><th>出勤</th><th>退勤</th><th>残業(h)</th><th>在宅</th><th>備考</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
     <div class="att-summary">
-      <div><div class="v">${_attMinsToHM(totalMins)}</div><div class="l">合計労働</div></div>
-      <div><div class="v">${_attMinsToHM(otMins)}</div><div class="l">残業</div></div>
-      <div><div class="v">${days}日</div><div class="l">勤務日数</div></div>
-      <div><div class="v">${telework}日</div><div class="l">在宅日数</div></div>
-      <div><div class="v">¥${otAllow.toLocaleString()}</div><div class="l">残業手当(仮)</div></div>
-      <div><div class="v">¥${teleAllow.toLocaleString()}</div><div class="l">在宅手当(仮)</div></div>
+      <div><div class="v">${s.work_days||0}日</div><div class="l">勤務日数</div></div>
+      <div><div class="v">${(s.total_overtime_h||0).toFixed(2)} h</div><div class="l">残業時間合計</div></div>
+      <div><div class="v">${s.telework_days||0}日</div><div class="l">在宅日数</div></div>
     </div>
-    <p style="margin-top:6px;font-size:11px;color:#94a3b8">※ 残業手当・在宅手当は仮置きの計算ロジックです（社労士確認待ち）。</p>
-    <div style="display:flex;gap:8px;margin-top:14px">
-      <button class="btn-pri" onclick="attSave()">保存</button>
-      <button class="btn-sec" onclick="attPayroll()">給与計算確認</button>
+    <p style="margin-top:6px;font-size:11px;color:#94a3b8">※ 残業手当・在宅手当は仮置きの計算ロジックです（社労士確認待ち・在宅手当は廃止予定）。</p>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="btn-sec" onclick="attSave()">💾 保存</button>
+      <button class="btn-pri" onclick="attPayroll()">🧮 給与計算</button>
+      <button class="btn-sec" onclick="attSubmit()">📨 freeeに送信（テスト）</button>
     </div>`;
 }
 
 function attEdit(idx, key, val) {
   const r = _attState.records[idx];
   if (!r) return;
-  if (key === 'clock_in_at' || key === 'clock_out_at') {
-    r[key] = val ? _attTimeToIso(r.date, val) : null;
-  } else if (key === 'is_telework') {
-    r[key] = !!val;
-  } else {
-    r[key] = val;
-  }
+  if (key === 'is_telework') r[key] = !!val;
+  else r[key] = val;
   _attState.dirty.add(r.date);
-  // 行クラスのみ更新
   const row = document.querySelector(`tr[data-date="${r.date}"]`);
   if (row) row.classList.add('dirty');
+  // 在宅日数だけ即時再集計
+  if (key === 'is_telework') {
+    _attState.summary = _attState.summary || {};
+    _attState.summary.telework_days = _attState.records.filter(x => x.is_telework).length;
+    const cells = document.querySelectorAll('.att-summary .v');
+    if (cells[2]) cells[2].textContent = `${_attState.summary.telework_days}日`;
+  }
 }
 
 async function attSave() {
   const headers = { 'user-id': _currentUser.id, 'Content-Type': 'application/json' };
-  const teleworkDays = _attState.records.filter(r => r.is_telework).length;
   try {
     const r = await fetch('/api/hr/attendance', {
       method: 'POST', headers,
@@ -1610,7 +1636,6 @@ async function attSave() {
         employee_id: _attState.employee_id,
         year_month: _attState.year_month,
         records: _attState.records,
-        telework_days: teleworkDays,
       }),
     });
     if (!r.ok) {
@@ -1618,6 +1643,8 @@ async function attSave() {
       alert('保存失敗: ' + (err.detail || r.status));
       return;
     }
+    const data = await r.json();
+    _attState.summary = data.summary || _attState.summary;
     _attState.dirty.clear();
     document.querySelectorAll('.att-table tr.dirty').forEach(t => t.classList.remove('dirty'));
     alert('保存しました');
@@ -1626,7 +1653,25 @@ async function attSave() {
   }
 }
 
+function _attShowModal(title, rows, footerHtml) {
+  const bg = document.createElement('div');
+  bg.className = 'att-modal-bg';
+  bg.onclick = (e) => { if (e.target === bg) bg.remove(); };
+  bg.innerHTML = `
+    <div class="att-modal">
+      <h3>${title}</h3>
+      <table>${rows.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>
+      ${footerHtml || ''}
+      <div style="text-align:right;margin-top:14px">
+        <button class="btn-sec" onclick="this.closest('.att-modal-bg').remove()">閉じる</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+}
+
 async function attPayroll() {
+  const kiso = parseInt(document.getElementById('att-kiso').value || '0', 10);
+  if (!kiso || kiso <= 0) { alert('基礎給与を入力してください'); return; }
   const headers = { 'user-id': _currentUser.id, 'Content-Type': 'application/json' };
   try {
     const r = await fetch('/api/hr/payroll', {
@@ -1634,6 +1679,7 @@ async function attPayroll() {
       body: JSON.stringify({
         employee_id: _attState.employee_id,
         year_month: _attState.year_month,
+        kiso_kyuyo: kiso,
       }),
     });
     if (!r.ok) {
@@ -1642,23 +1688,50 @@ async function attPayroll() {
       return;
     }
     const d = await r.json();
-    const lines = [
-      `年月: ${d.year_month}`,
-      `従業員ID: ${d.employee_id}`,
-      `合計労働: ${_attMinsToHM(d.total_work_mins)}`,
-      `残業: ${_attMinsToHM(d.total_overtime_mins)}`,
-      `勤務日数: ${d.work_days}日`,
-      `在宅日数: ${d.telework_days}日`,
-      `残業手当(仮): ¥${(d.overtime_allowance||0).toLocaleString()}`,
-      `在宅手当(仮): ¥${(d.telework_allowance||0).toLocaleString()}`,
-      '',
-      d.note || '',
-    ];
-    alert(lines.join('\n'));
+    window._attLastPayroll = d;
+    _attShowModal(`給与計算結果（${d.year_month}）`, [
+      ['基礎給与', `¥${(d.kiso_kyuyo||0).toLocaleString()}`],
+      ['時給', `¥${(d.jikyu||0).toLocaleString()}`],
+      ['時給×1.25', `¥${(d.jikyu_125||0).toLocaleString()}`],
+      ['みなし残業時間', `${d.minashi_zangyo_h} h`],
+      ['実残業時間', `${d.jitsu_zangyo_h} h`],
+      ['超過残業時間', `${d.choka_h} h`],
+      ['超過残業手当', `¥${(d.choka_kin||0).toLocaleString()}`],
+      ['勤務日数', `${d.work_days}日`],
+      ['在宅日数', `${d.telework_days}日`],
+      ['在宅手当(仮)', `¥${(d.zaitaku_teate||0).toLocaleString()}`],
+    ], `<p style="margin-top:10px;font-size:11px;color:#94a3b8">${d.note||''}</p>`);
   } catch (e) {
     alert('通信エラー: ' + e.message);
   }
 }
+
+async function attSubmit() {
+  const last = window._attLastPayroll;
+  if (!last) { alert('先に「給与計算」を実行してください'); return; }
+  if (!confirm(`freee人事労務にテスト送信します。\n超過残業手当: ¥${last.choka_kin.toLocaleString()}\n在宅手当: ¥${last.zaitaku_teate.toLocaleString()}\n\n続行しますか？`)) return;
+  const headers = { 'user-id': _currentUser.id, 'Content-Type': 'application/json' };
+  try {
+    const r = await fetch('/api/hr/payroll/submit', {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        employee_id: _attState.employee_id,
+        year_month: _attState.year_month,
+        choka_kin: last.choka_kin,
+        zaitaku_teate: last.zaitaku_teate,
+      }),
+    });
+    const d = await r.json().catch(() => ({}));
+    _attShowModal('freee送信結果（テスト）', [
+      ['HTTPステータス', String(d.freee_status || r.status)],
+      ['超過残業手当', `¥${(last.choka_kin||0).toLocaleString()}`],
+      ['在宅手当', `¥${(last.zaitaku_teate||0).toLocaleString()}`],
+    ], `<pre style="margin-top:10px;background:#f8fafc;border:0.5px solid #e2e8f0;border-radius:4px;padding:8px;font-size:11px;max-height:200px;overflow:auto">${JSON.stringify(d.freee_response||d, null, 2).replace(/</g,'&lt;')}</pre><p style="font-size:11px;color:#94a3b8;margin-top:8px">${d.note||''}</p>`);
+  } catch (e) {
+    alert('通信エラー: ' + e.message);
+  }
+}
+
 
 async function openHrApiTest() {
   if (!_currentUser?.id) { alert('ログインが必要です'); return; }
