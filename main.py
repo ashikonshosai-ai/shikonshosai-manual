@@ -476,6 +476,7 @@ async def hr_refresh(user_id: str = Header(None, alias="user-id")):
 ATTENDANCE_BASE = "/外注先共有/400000_CC/shikonshosai/attendance"
 PAYROLL_MONTHLY_HOURS = 166      # 月平均所定時間（固定）
 PAYROLL_TEIGAKU_ZANGYO = 55000   # 定額残業手当（固定）
+PAYROLL_KIHON_KOTEI = 289000     # 基本給254,000 + 役職手当20,000 + 期日手当15,000
 
 
 def _attendance_path(employee_id: int, year_month: str) -> str:
@@ -494,6 +495,24 @@ def _time_only(s):
         return ""
     m = re.search(r"(\d{1,2}):(\d{2})", str(s))
     return f"{int(m.group(1)):02d}:{m.group(2)}" if m else ""
+
+
+def _calc_estimated_zangyo_h(clock_in: str, clock_out: str) -> float:
+    """出退勤時刻から推定残業時間を算出。
+    - 9時より前の出勤は9時扱い
+    - 実労働 = 退勤 - max(出勤, 9:00) - 休憩1h
+    - 残業 = 実労働 - 所定8h（マイナスは0）"""
+    if not clock_in or not clock_out:
+        return 0.0
+    try:
+        ci = datetime.strptime(clock_in, "%H:%M")
+        co = datetime.strptime(clock_out, "%H:%M")
+    except ValueError:
+        return 0.0
+    nine = ci.replace(hour=9, minute=0, second=0)
+    start = ci if ci > nine else nine
+    diff_h = (co - start).total_seconds() / 3600 - 1.0
+    return max(0.0, diff_h - 8.0)
 
 
 def _parse_tot_csv(data: bytes):
@@ -659,61 +678,72 @@ async def hr_payroll(
     request: Request,
     user_id: str = Header(None, alias="user-id"),
 ):
-    """保存済み勤怠データと基礎給与から残業・在宅手当を計算して返す（freee送信なし）。"""
+    """保存済み勤怠データから残業・在宅手当を計算して返す（freee送信なし）。
+    基礎給与は KIHON_KOTEI (289,000) + 在宅手当（5000×在宅日/勤務日）で自動算出。
+    残業時間は出退勤時刻から推定再計算した値を採用し、CSV残業合計と差額も返す。"""
     await _hr_require_admin(user_id)
     body = await request.json()
     employee_id = int(body.get("employee_id") or 0)
     year_month = body.get("year_month") or ""
-    kiso_kyuyo = int(body.get("kiso_kyuyo") or 0)
     if not employee_id or not year_month:
         raise HTTPException(400, "employee_id / year_month が必要です")
-    if kiso_kyuyo <= 0:
-        raise HTTPException(400, "kiso_kyuyo（基礎給与）が必要です")
     saved = await dropbox_get(_attendance_path(employee_id, year_month))
     if not saved:
         raise HTTPException(404, "保存済み勤怠データがありません。CSV をアップロードしてください")
     records = saved.get("records") or []
 
-    jikyu = kiso_kyuyo / PAYROLL_MONTHLY_HOURS
-    jikyu_125 = jikyu * 1.25
-    minashi_zangyo_h = PAYROLL_TEIGAKU_ZANGYO / jikyu_125 if jikyu_125 > 0 else 0
-
-    jitsu_zangyo_h = 0.0
+    # 集計
+    csv_zangyo_h = 0.0
+    jitsu_zangyo_h = 0.0  # 推定ロジック計算値
     telework_days = 0
     work_days = 0
     for r in records:
         if not isinstance(r, dict):
             continue
+        # CSV の残業時間列合計
         if r.get("overtime_h"):
-            jitsu_zangyo_h += float(r["overtime_h"] or 0)
+            csv_zangyo_h += float(r["overtime_h"] or 0)
+        # 推定残業時間（出退勤から再計算）
+        jitsu_zangyo_h += _calc_estimated_zangyo_h(r.get("clock_in") or "", r.get("clock_out") or "")
+        # 在宅日数・勤務日数
         if r.get("is_telework"):
             telework_days += 1
         if r.get("overtime_h") is not None or r.get("scheduled_h") or r.get("clock_in"):
             work_days += 1
 
+    # 在宅手当（仮置き）
+    zaitaku_teate = int(round(5000 * telework_days / work_days)) if work_days > 0 else 0
+    # 基礎給与 = 固定 + 在宅手当
+    kiso_kyuyo = PAYROLL_KIHON_KOTEI + zaitaku_teate
+    jikyu = kiso_kyuyo / PAYROLL_MONTHLY_HOURS
+    jikyu_125 = jikyu * 1.25
+    minashi_zangyo_h = PAYROLL_TEIGAKU_ZANGYO / jikyu_125 if jikyu_125 > 0 else 0
+
+    # 超過残業（推定ロジックベース）
     if jitsu_zangyo_h > minashi_zangyo_h:
         choka_h = jitsu_zangyo_h - minashi_zangyo_h
         choka_kin = int(round(jikyu_125 * choka_h))
     else:
-        choka_h = 0
+        choka_h = 0.0
         choka_kin = 0
-
-    zaitaku_teate = int(round(5000 * telework_days / work_days)) if work_days > 0 else 0
 
     return {
         "year_month": year_month,
         "employee_id": employee_id,
+        "kihon_kotei": PAYROLL_KIHON_KOTEI,
+        "zaitaku_teate": zaitaku_teate,
         "kiso_kyuyo": kiso_kyuyo,
         "jikyu": round(jikyu, 2),
         "jikyu_125": round(jikyu_125, 2),
         "minashi_zangyo_h": round(minashi_zangyo_h, 2),
         "jitsu_zangyo_h": round(jitsu_zangyo_h, 2),
+        "csv_zangyo_h": round(csv_zangyo_h, 2),
+        "zangyo_sa_h": round(jitsu_zangyo_h - csv_zangyo_h, 2),
         "choka_h": round(choka_h, 2),
         "choka_kin": choka_kin,
         "telework_days": telework_days,
         "work_days": work_days,
-        "zaitaku_teate": zaitaku_teate,
-        "note": "在宅手当は廃止予定・仮置き。超過残業手当計算式は社労士確認待ち。",
+        "note": "在宅手当は廃止予定・仮置き。残業時間は出退勤からの推定値（社労士確認待ち）。",
     }
 
 

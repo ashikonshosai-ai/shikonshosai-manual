@@ -27,7 +27,8 @@
     background: #f8fafc;
     border-right: 1px solid #e2e8f0;
     display: flex; flex-direction: column;
-    overflow: hidden;
+    height: 100vh;
+    overflow-y: auto;
   }
   .left-pane-list { flex: 1; overflow-y: auto; padding: 8px 0; }
   .left-pane-footer { padding: 8px; border-top: 1px solid #e2e8f0; }
@@ -152,7 +153,7 @@
   .search-input:focus { outline: none; border-color: #3b82f6; }
 
   /* 左ペイン ナビ */
-  .left-pane-nav { padding: 8px 0 0; border-bottom: 1px solid #e2e8f0; max-height: 60vh; overflow-y: auto; }
+  .left-pane-nav { padding: 8px 0 0; border-bottom: 1px solid #e2e8f0; flex-shrink: 0; }
   .nav-label { font-size: 10px; color: #94a3b8; font-weight: 600; padding: 0 16px 4px; letter-spacing: .05em; text-transform: uppercase; }
   .nav-item { padding: 8px 16px; cursor: pointer; font-size: 13px; font-weight: 500; color: #334155; display: flex; align-items: center; gap: 6px; border-left: 3px solid transparent; }
   .nav-item:hover { background: #f1f5f9; }
@@ -1428,7 +1429,6 @@ async function showAttendance() {
   }
   setView('attendance');
   render();
-  const savedKiso = localStorage.getItem('att_kiso_kyuyo') || '';
   view.innerHTML = `
     <div style="padding:16px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
@@ -1443,11 +1443,6 @@ async function showAttendance() {
         <input type="file" id="att-file" accept=".csv" style="display:none" onchange="attUploadCsv(this)">
         <button class="btn-pri" onclick="document.getElementById('att-file').click()">📤 CSVアップロード</button>
         <button class="btn-sec" onclick="attLoadSaved()">📂 保存済みデータ読み込み</button>
-        <span style="font-size:12px;color:#64748b;margin-left:auto">基礎給与</span>
-        <input type="number" id="att-kiso" value="${savedKiso}" placeholder="例: 294742"
-          style="width:120px;padding:5px 8px;border:0.5px solid #cbd5e1;border-radius:4px;font-size:13px"
-          onchange="localStorage.setItem('att_kiso_kyuyo', this.value)">
-        <span style="font-size:12px;color:#64748b">円</span>
       </div>
       <div id="att-body">
         <p style="color:#94a3b8;font-size:13px">「CSVアップロード」または「保存済みデータ読み込み」を実行してください。</p>
@@ -1671,8 +1666,6 @@ function _attShowModal(title, rows, footerHtml) {
 }
 
 async function attPayroll() {
-  const kiso = parseInt(document.getElementById('att-kiso').value || '0', 10);
-  if (!kiso || kiso <= 0) { alert('基礎給与を入力してください'); return; }
   const headers = { 'user-id': _currentUser.id, 'Content-Type': 'application/json' };
   try {
     const r = await fetch('/api/hr/payroll', {
@@ -1680,7 +1673,6 @@ async function attPayroll() {
       body: JSON.stringify({
         employee_id: _attState.employee_id,
         year_month: _attState.year_month,
-        kiso_kyuyo: kiso,
       }),
     });
     if (!r.ok) {
@@ -1690,18 +1682,23 @@ async function attPayroll() {
     }
     const d = await r.json();
     window._attLastPayroll = d;
+    const sa = d.zangyo_sa_h || 0;
+    const saStr = sa > 0 ? `+${sa.toFixed(2)} h` : `${sa.toFixed(2)} h`;
     _attShowModal(`給与計算結果（${d.year_month}）`, [
-      ['基礎給与', `¥${(d.kiso_kyuyo||0).toLocaleString()}`],
+      ['基本(固定)', `¥${(d.kihon_kotei||0).toLocaleString()}`],
+      ['在宅手当(仮)', `¥${(d.zaitaku_teate||0).toLocaleString()}`],
+      ['基礎給与(自動)', `¥${(d.kiso_kyuyo||0).toLocaleString()}`],
       ['時給', `¥${(d.jikyu||0).toLocaleString()}`],
       ['時給×1.25', `¥${(d.jikyu_125||0).toLocaleString()}`],
       ['みなし残業時間', `${d.minashi_zangyo_h} h`],
-      ['実残業時間', `${d.jitsu_zangyo_h} h`],
+      ['実残業時間（推定）', `${d.jitsu_zangyo_h} h`],
+      ['実残業時間（CSV）', `${d.csv_zangyo_h} h`],
+      ['差額（推定 − CSV）', saStr],
       ['超過残業時間', `${d.choka_h} h`],
       ['超過残業手当', `¥${(d.choka_kin||0).toLocaleString()}`],
       ['勤務日数', `${d.work_days}日`],
       ['在宅日数', `${d.telework_days}日`],
-      ['在宅手当(仮)', `¥${(d.zaitaku_teate||0).toLocaleString()}`],
-    ], `<p style="margin-top:10px;font-size:11px;color:#94a3b8">${d.note||''}</p>`);
+    ], `<p style="margin-top:10px;font-size:11px;color:#94a3b8">${d.note||''}<br>※社労士確認後に計算ロジックを確定します。</p>`);
   } catch (e) {
     alert('通信エラー: ' + e.message);
   }
