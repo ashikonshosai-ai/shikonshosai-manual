@@ -502,14 +502,14 @@ def _parse_tot_csv(data: bytes):
     text = data.decode("cp932", errors="replace")
     reader = csv.reader(io.StringIO(text))
     rows = [r for r in reader]
-    # ヘッダー行を検出（"日付" を含む行）
+    # ヘッダー行を検出（"日時" を含む行。互換のため "日付" / "年月日" も許容）
     header_idx = None
     for i, row in enumerate(rows):
-        if any(("日付" in (c or "")) or ("年月日" in (c or "")) for c in row):
+        if any(("日時" in (c or "")) or ("日付" in (c or "")) or ("年月日" in (c or "")) for c in row):
             header_idx = i
             break
     if header_idx is None:
-        raise HTTPException(400, "CSV のヘッダー行が見つかりません（『日付』を含む列が必要）")
+        raise HTTPException(400, "CSV のヘッダー行が見つかりません（『日時』を含む列が必要）")
     headers = rows[header_idx]
 
     def col_index(*keys):
@@ -519,7 +519,7 @@ def _parse_tot_csv(data: bytes):
                     return i
         return None
 
-    idx_date = col_index("日付", "年月日")
+    idx_date = col_index("日時", "日付", "年月日")
     idx_kind = col_index("勤務日種別", "種別")
     idx_kyuka = col_index("休暇")
     idx_note = col_index("備考")
