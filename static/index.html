@@ -388,7 +388,6 @@
       <div class="nav-item" id="nav-profile" onclick="showProfile()">👤 マイプロフィール</div>
       <div class="nav-item" id="nav-user-mgmt" style="display:none" onclick="showUserMgmt()">⚙ ユーザー管理</div>
       <div class="nav-item" id="nav-attendance" style="display:none" onclick="showAttendance()">🕐 勤怠管理</div>
-      <div class="nav-item" id="nav-hr-test" style="display:none" onclick="openHrApiTest()">💼 HR APIテスト</div>
     </div>
     <div class="nav-label" style="padding: 8px 16px 4px;">マニュアル</div>
     <div class="left-pane-list" id="cat-list"></div>
@@ -1190,8 +1189,6 @@ function render() {
   if (navForecast) navForecast.style.display = (['admin', 'leader', 'soumu'].includes(_currentUser?.role)) ? 'flex' : 'none';
   const navIA = document.getElementById('nav-invoice-admin');
   if (navIA) navIA.style.display = (['admin','leader','soumu'].includes(_currentUser?.role)) ? 'flex' : 'none';
-  const navHr = document.getElementById('nav-hr-test');
-  if (navHr) navHr.style.display = (_currentUser?.role === 'admin') ? 'flex' : 'none';
   const navAtt = document.getElementById('nav-attendance');
   if (navAtt) navAtt.style.display = (_currentUser?.role === 'admin') ? 'flex' : 'none';
   // 左ペイン
@@ -1730,37 +1727,6 @@ async function attSubmit() {
   }
 }
 
-
-async function openHrApiTest() {
-  if (!_currentUser?.id) { alert('ログインが必要です'); return; }
-  const headers = { 'user-id': _currentUser.id };
-  try {
-    const r = await fetch('/api/hr/test', { headers });
-    if (r.status === 401) {
-      // 未認証 → /api/hr/auth で認可URLを取得して別タブで開く
-      const ar = await fetch('/api/hr/auth', { headers });
-      if (!ar.ok) {
-        const err = await ar.json().catch(() => ({}));
-        alert('認証開始に失敗しました: ' + (err.detail || ar.status));
-        return;
-      }
-      const data = await ar.json();
-      if (data.auth_url) window.open(data.auth_url, '_blank');
-      else alert('認可URLの取得に失敗しました');
-      return;
-    }
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      alert('HR APIテスト失敗: ' + (err.detail || r.status));
-      return;
-    }
-    const json = await r.json();
-    const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
-    window.open(URL.createObjectURL(blob), '_blank');
-  } catch (e) {
-    alert('通信エラー: ' + e.message);
-  }
-}
 
 async function showHome() {
   const [noticesRes, qaRes] = await Promise.all([fetch('/api/notices'), fetch('/api/qa')]);
