@@ -134,12 +134,12 @@ async def _update_render_env(new_refresh_token: str):
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             await client.put(
-                f"https://api.render.com/v1/services/{service_id}/env-vars",
+                f"https://api.render.com/v1/services/{service_id}/env-vars/FREEE_REFRESH_TOKEN",
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
-                json=[{"key": "FREEE_REFRESH_TOKEN", "value": new_refresh_token}],
+                json={"value": new_refresh_token},
             )
     except Exception:
         pass  # 失敗してもトークン自体は更新済みなので無視
