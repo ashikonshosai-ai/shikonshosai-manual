@@ -125,6 +125,25 @@ def _get_spreadsheet():
 _freee_access_token: str = ""
 _freee_token_expires_at: float = 0.0
 
+async def _update_render_env(new_refresh_token: str):
+    """Renderの環境変数FREEE_REFRESH_TOKENを最新値に更新する"""
+    api_key    = os.environ.get("RENDER_API_KEY", "")
+    service_id = os.environ.get("RENDER_SERVICE_ID", "")
+    if not api_key or not service_id:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.put(
+                f"https://api.render.com/v1/services/{service_id}/env-vars",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=[{"key": "FREEE_REFRESH_TOKEN", "value": new_refresh_token}],
+            )
+    except Exception:
+        pass  # 失敗してもトークン自体は更新済みなので無視
+
 async def _get_freee_token() -> str:
     """
     トークン取得：_stored_refresh_token（/auth/callback で更新）を優先し、
@@ -156,6 +175,7 @@ async def _get_freee_token() -> str:
             _freee_token_expires_at = time.time() + td.get("expires_in", 3600)
             if "refresh_token" in td:
                 _stored_refresh_token = td["refresh_token"]
+                asyncio.create_task(_update_render_env(td["refresh_token"]))
             return _freee_access_token
 
 @app.get("/auth/login")
