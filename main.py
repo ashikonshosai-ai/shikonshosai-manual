@@ -3012,13 +3012,24 @@ def _company_progress_path(company_id: str) -> str:
     return f"{COMPANY_PROGRESS_BASE}{company_id}.json"
 
 
-async def _load_company_progress(company_id: str) -> list:
-    """会社の当月完了済みイベントID一覧を返す（year_monthが当月でなければ空）。"""
+def _normalize_completed_events(raw) -> dict:
+    """completed_events を必ず {event_id: {"user_name": ...}} 形式にする。
+    指示書⑨時点で list 形式で保存されていたデータとの後方互換のため。"""
+    if isinstance(raw, dict):
+        return {k: (v if isinstance(v, dict) else {"user_name": ""}) for k, v in raw.items()}
+    if isinstance(raw, list):
+        return {eid: {"user_name": ""} for eid in raw}
+    return {}
+
+
+async def _load_company_progress(company_id: str) -> dict:
+    """会社の当月完了済みイベントマップ {event_id: {"user_name": ...}} を返す。
+    year_month が当月でなければ空 dict を返す。"""
     current_ym = date.today().strftime('%Y-%m')
     data = await dropbox_get(_company_progress_path(company_id))
     if not data or data.get('year_month') != current_ym:
-        return []
-    return list(data.get('completed_events', []))
+        return {}
+    return _normalize_completed_events(data.get('completed_events'))
 
 
 @app.get("/api/company_progress/{company_id}")
@@ -3027,31 +3038,32 @@ async def get_company_progress(company_id: str):
     current_ym = date.today().strftime('%Y-%m')
     data = await dropbox_get(_company_progress_path(company_id))
     if not data or data.get('year_month') != current_ym:
-        return {"year_month": current_ym, "completed_events": []}
+        return {"year_month": current_ym, "completed_events": {}}
     return {
         "year_month": current_ym,
-        "completed_events": list(data.get('completed_events', [])),
+        "completed_events": _normalize_completed_events(data.get('completed_events')),
     }
 
 
 @app.post("/api/company_progress/{company_id}/toggle")
 async def toggle_company_progress(company_id: str, request: Request):
-    """固定イベントの完了状態をトグルする。"""
+    """固定イベントの完了状態をトグルする。完了時の user_name を記録する。"""
     body = await request.json()
     event_id = body.get('event_id')
+    user_name = body.get('user_name', '') or ''
     if not event_id:
         raise HTTPException(status_code=400, detail="event_id is required")
 
     current_ym = date.today().strftime('%Y-%m')
     data = await dropbox_get(_company_progress_path(company_id))
     if not data or data.get('year_month') != current_ym:
-        data = {"year_month": current_ym, "completed_events": []}
+        data = {"year_month": current_ym, "completed_events": {}}
 
-    completed = list(data.get('completed_events', []))
+    completed = _normalize_completed_events(data.get('completed_events'))
     if event_id in completed:
-        completed.remove(event_id)
+        del completed[event_id]
     else:
-        completed.append(event_id)
+        completed[event_id] = {"user_name": user_name}
     data['year_month'] = current_ym
     data['completed_events'] = completed
     await dropbox_save(_company_progress_path(company_id), data)
@@ -3097,6 +3109,7 @@ async def get_home_schedules(user_id: str = Query(...)):
                 "name": ev.get("name", ""),
                 "notes": ev.get("notes", ""),
                 "completed": False,
+                "completed_by": "",
             })
         for ev in sched.get("fixed_events", []):
             recurrence = ev.get("recurrence", "monthly")
@@ -3119,15 +3132,19 @@ async def get_home_schedules(user_id: str = Query(...)):
                         pass
                 for d in candidates:
                     if today <= d <= end:
+                        cmap = progress_map.get(cid, {})
+                        eid = ev.get("id")
+                        is_done = eid in cmap
                         results.append({
                             "date": d.isoformat(),
                             "company_id": cid,
                             "company_name": cname,
-                            "event_id": ev.get("id"),
+                            "event_id": eid,
                             "event_type": "fixed_monthly",
                             "name": ev.get("name", ""),
                             "notes": ev.get("notes", ""),
-                            "completed": ev.get("id") in progress_map.get(cid, []),
+                            "completed": is_done,
+                            "completed_by": cmap.get(eid, {}).get("user_name", "") if is_done else "",
                         })
             else:
                 m = int(ev.get("month") or 0)
@@ -3141,15 +3158,19 @@ async def get_home_schedules(user_id: str = Query(...)):
                     except ValueError:
                         continue
                     if today <= d <= end:
+                        cmap = progress_map.get(cid, {})
+                        eid = ev.get("id")
+                        is_done = eid in cmap
                         results.append({
                             "date": d.isoformat(),
                             "company_id": cid,
                             "company_name": cname,
-                            "event_id": ev.get("id"),
+                            "event_id": eid,
                             "event_type": "fixed_yearly",
                             "name": ev.get("name", ""),
                             "notes": ev.get("notes", ""),
-                            "completed": ev.get("id") in progress_map.get(cid, []),
+                            "completed": is_done,
+                            "completed_by": cmap.get(eid, {}).get("user_name", "") if is_done else "",
                         })
     results.sort(key=lambda r: (r["date"], r["company_name"]))
     return {"schedules": results}
