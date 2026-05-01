@@ -877,9 +877,29 @@
               <label style="font-size:12px; color:#475569; display:block;"><input id="cm-withholding" type="checkbox" onchange="updateCompanyAttrUI()" /> 源泉納付あり</label>
               <label id="cm-withholding-special-wrap" style="font-size:12px; color:#475569; display:none; margin-left:18px;"><input id="cm-withholding-special" type="checkbox" /> 源泉納期特例</label>
               <label style="font-size:12px; color:#475569; display:block;"><input id="cm-payroll" type="checkbox" onchange="updateCompanyAttrUI()" /> 給与計算あり</label>
-              <label id="cm-payroll-day-wrap" style="font-size:12px; color:#475569; display:none; margin-left:18px;">給与計算基準日：毎月
-                <input id="cm-payroll-day" type="number" min="1" max="31" value="25" style="width:60px; padding:4px 6px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px;" /> 日
-              </label>
+              <div id="cm-payroll-detail-wrap" style="display:none; margin-left:18px;">
+                <div style="font-size:12px; color:#475569; display:flex; align-items:center; gap:6px; margin-top:4px; flex-wrap:wrap;">
+                  締め日：
+                  <select id="cm-payroll-closing-type" onchange="updateCompanyAttrUI()" style="padding:4px 6px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px;">
+                    <option value="month_end">月末</option>
+                    <option value="specific">指定日</option>
+                  </select>
+                  <span id="cm-payroll-closing-day-wrap" style="display:none;">
+                    <input id="cm-payroll-closing-day" type="number" min="1" max="31" value="20" style="width:60px; padding:4px 6px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px;" /> 日
+                  </span>
+                </div>
+                <div style="font-size:12px; color:#475569; display:flex; align-items:center; gap:6px; margin-top:4px; flex-wrap:wrap;">
+                  支払月：
+                  <select id="cm-payroll-payment-month" style="padding:4px 6px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px;">
+                    <option value="current">当月</option>
+                    <option value="next">翌月</option>
+                  </select>
+                </div>
+                <div style="font-size:12px; color:#475569; display:flex; align-items:center; gap:6px; margin-top:4px; flex-wrap:wrap;">
+                  支払日：毎月
+                  <input id="cm-payroll-payment-day" type="number" min="1" max="31" value="5" style="width:60px; padding:4px 6px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px;" /> 日
+                </div>
+              </div>
             </div>
 
             <div>
@@ -934,6 +954,7 @@ name,code,type,fiscal_month,industry,contract_types,freee_enabled,notes
 [+ 業務属性カラム（任意・列ごと省略可）]
 entity_type,consumption_tax,tax_extension,consumption_tax_extension,
 withholding_tax,withholding_special,payroll,payroll_day,
+payroll_closing_type,payroll_closing_day,payroll_payment_month,payroll_payment_day,
 mtg,mtg_day,simplified_tax_check,notification_filing
 
 例：
@@ -4574,6 +4595,10 @@ function fillCompanyAttrModal(c) {
   document.getElementById('cm-withholding-special').checked = !!c.withholding_special;
   document.getElementById('cm-payroll').checked = !!c.payroll;
   document.getElementById('cm-payroll-day').value = c.payroll_day || 25;
+  document.getElementById('cm-payroll-closing-type').value = c.payroll_closing_type || 'month_end';
+  document.getElementById('cm-payroll-closing-day').value = c.payroll_closing_day || 20;
+  document.getElementById('cm-payroll-payment-month').value = c.payroll_payment_month || 'current';
+  document.getElementById('cm-payroll-payment-day').value = c.payroll_payment_day || 5;
   document.getElementById('cm-notification-filing').checked = !!c.notification_filing;
   updateCompanyAttrUI();
 }
@@ -4582,7 +4607,10 @@ function updateCompanyAttrUI() {
   const isCorp = document.getElementById('cm-entity-type').value === 'corporation';
   document.getElementById('cm-corp-only').style.display = isCorp ? 'block' : 'none';
   document.getElementById('cm-withholding-special-wrap').style.display = document.getElementById('cm-withholding').checked ? 'block' : 'none';
-  document.getElementById('cm-payroll-day-wrap').style.display = document.getElementById('cm-payroll').checked ? 'block' : 'none';
+  const payrollOn = document.getElementById('cm-payroll').checked;
+  document.getElementById('cm-payroll-detail-wrap').style.display = payrollOn ? 'block' : 'none';
+  const closingType = document.getElementById('cm-payroll-closing-type').value;
+  document.getElementById('cm-payroll-closing-day-wrap').style.display = closingType === 'specific' ? 'inline-block' : 'none';
 }
 
 function collectCompanyAttrModal() {
@@ -4596,6 +4624,12 @@ function collectCompanyAttrModal() {
     withholding_special: document.getElementById('cm-withholding').checked && document.getElementById('cm-withholding-special').checked,
     payroll: document.getElementById('cm-payroll').checked,
     payroll_day: parseInt(document.getElementById('cm-payroll-day').value) || 25,
+    payroll_closing_type: document.getElementById('cm-payroll-closing-type').value || 'month_end',
+    payroll_closing_day: document.getElementById('cm-payroll-closing-type').value === 'specific'
+      ? (parseInt(document.getElementById('cm-payroll-closing-day').value) || null)
+      : null,
+    payroll_payment_month: document.getElementById('cm-payroll-payment-month').value || 'current',
+    payroll_payment_day: parseInt(document.getElementById('cm-payroll-payment-day').value) || null,
     notification_filing: document.getElementById('cm-notification-filing').checked,
   };
 }
@@ -4822,9 +4856,26 @@ function renderInfoTab() {
   const withholdingRow = c.withholding_tax
     ? _yesNoRow('源泉納期特例', c.withholding_special)
     : '';
-  const payrollDayRow = c.payroll
-    ? `<tr><th style="text-align:left; padding:6px; color:#64748b;">給与計算基準日</th><td style="padding:6px;">${c.payroll_day ? '毎月' + c.payroll_day + '日' : '未設定'}</td></tr>`
-    : '';
+  let payrollDayRow = '';
+  if (c.payroll) {
+    const closingLabel = c.payroll_closing_type === 'specific'
+      ? `${c.payroll_closing_day || '?'}日締め`
+      : '月末締め';
+    const paymentMonthLabel = c.payroll_payment_month === 'next' ? '翌月' : '当月';
+    const paymentDay = c.payroll_payment_day;
+    const paymentLabel = paymentDay ? `${paymentMonthLabel}${paymentDay}日払い` : '未設定';
+    let checkLabel = '未設定';
+    if (paymentDay) {
+      let cd = paymentDay - 3;
+      if (cd <= 0) cd = 28 + cd;
+      cd = Math.max(1, Math.min(31, cd));
+      checkLabel = `支払日3日前（毎月${cd}日）`;
+    }
+    payrollDayRow = `
+        <tr><th style="text-align:left; padding:6px; color:#64748b;">締め日</th><td style="padding:6px;">${esc(closingLabel)}</td></tr>
+        <tr><th style="text-align:left; padding:6px; color:#64748b;">支払日</th><td style="padding:6px;">${esc(paymentLabel)}</td></tr>
+        <tr><th style="text-align:left; padding:6px; color:#64748b;">給与計算チェック</th><td style="padding:6px;">${esc(checkLabel)}</td></tr>`;
+  }
   const corpRows = isCorp ? `
         ${_yesNoRow('法人税申告期限延長', c.tax_extension)}
         ${_yesNoRow('消費税申告期限延長', c.consumption_tax_extension)}

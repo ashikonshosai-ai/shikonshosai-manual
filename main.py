@@ -2491,8 +2491,8 @@ _KARTE_ATTR_BOOL_FIELDS = (
     "payroll", "mtg",
     "simplified_tax_check", "notification_filing",
 )
-_KARTE_ATTR_STR_FIELDS = ("entity_type", "consumption_tax")
-_KARTE_ATTR_INT_FIELDS = ("payroll_day", "mtg_day")
+_KARTE_ATTR_STR_FIELDS = ("entity_type", "consumption_tax", "payroll_closing_type", "payroll_payment_month")
+_KARTE_ATTR_INT_FIELDS = ("payroll_day", "mtg_day", "payroll_closing_day", "payroll_payment_day")
 _KARTE_ATTR_FIELDS = _KARTE_ATTR_BOOL_FIELDS + _KARTE_ATTR_STR_FIELDS + _KARTE_ATTR_INT_FIELDS
 
 def _coerce_attr_value(field: str, value):
@@ -2582,7 +2582,24 @@ def _generate_fixed_events(company: dict) -> list:
             events.append(make_event("源泉納付", "monthly", day_of_month=10))
 
     if payroll:
-        events.append(make_event("給与計算チェック", "monthly", day_of_month=max(1, min(31, payroll_day))))
+        payment_day = company.get("payroll_payment_day")
+        try:
+            payment_day = int(payment_day) if payment_day not in (None, "") else None
+        except (TypeError, ValueError):
+            payment_day = None
+        if payment_day:
+            check_day = payment_day - 3
+            if check_day <= 0:
+                # 月またぎ：支払日1〜3日の場合、前月末近辺に補正（28+check_day）
+                check_day = 28 + check_day
+            check_day = max(1, min(31, check_day))
+            events.append(make_event(
+                "給与計算チェック", "monthly", day_of_month=check_day,
+                notes=f"支払日({payment_day}日)の3日前",
+            ))
+        else:
+            # 支払日未設定の場合はデフォルト25日
+            events.append(make_event("給与計算チェック", "monthly", day_of_month=25))
 
     return events
 
