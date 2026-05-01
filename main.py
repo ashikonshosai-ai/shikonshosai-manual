@@ -2569,6 +2569,15 @@ def _generate_fixed_events(company: dict) -> list:
         ps_month = _add_months(fiscal_month, 3)
         events.append(make_event("事前確定給与届出", "yearly", month=ps_month, day=_month_end_day(ps_month)))
 
+        # 予定納税判定：申告期限月（決算月+2ヶ月、延長は無視）から3・6・9ヶ月後の月末
+        tax_base_month = _add_months(fiscal_month, 2)
+        for offset in (3, 6, 9):
+            yotei_month = _add_months(tax_base_month, offset)
+            events.append(make_event(
+                "予定納税判定", "yearly",
+                month=yotei_month, day=_month_end_day(yotei_month),
+            ))
+
     elif entity_type == "individual":
         events.append(make_event("所得税申告期限", "yearly", month=3, day=15))
         if consumption_tax in ("standard", "simplified"):
