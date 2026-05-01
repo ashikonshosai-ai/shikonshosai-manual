@@ -898,6 +898,33 @@
         </div>
       </div>
 
+      <!-- ホームからのイベント追加モーダル -->
+      <div id="home-event-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+        <div style="background:white; border-radius:12px; padding:24px; max-width:480px; width:90%; max-height:90vh; overflow-y:auto;">
+          <div style="font-size:16px; font-weight:600; margin-bottom:16px;">イベントを追加</div>
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <label style="font-size:12px; color:#475569;">会社 <span style="color:#E24B4A;">*</span>
+              <input id="hem-company-search" type="text" list="hem-company-list" placeholder="会社を検索（会社CDまたは会社名）..." oninput="onHomeEventCompanyInput()" autocomplete="off" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; margin-top:3px;" />
+              <datalist id="hem-company-list"></datalist>
+              <div id="hem-company-selected" style="font-size:11px; color:#94a3b8; margin-top:3px;">未選択</div>
+            </label>
+            <label style="font-size:12px; color:#475569;">日付 <span style="color:#E24B4A;">*</span>
+              <input id="hem-date" type="date" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; margin-top:3px;" />
+            </label>
+            <label style="font-size:12px; color:#475569;">イベント名 <span style="color:#E24B4A;">*</span>
+              <input id="hem-name" type="text" placeholder="例：月次MTG" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; margin-top:3px;" />
+            </label>
+            <label style="font-size:12px; color:#475569;">備考
+              <input id="hem-notes" type="text" placeholder="例：ZOOMにて 14:00〜" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; margin-top:3px;" />
+            </label>
+          </div>
+          <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:18px;">
+            <button class="btn btn-gray" onclick="closeAddHomeEventModal()">キャンセル</button>
+            <button id="btn-save-home-event" class="btn btn-blue" onclick="addEventFromHome()">保存</button>
+          </div>
+        </div>
+      </div>
+
       <!-- CSVインポートモーダル -->
       <div id="company-csv-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
         <div style="background:white; border-radius:12px; padding:24px; max-width:500px; width:90%;">
@@ -1796,7 +1823,11 @@ function renderHome() {
 
   el.innerHTML = `
     <div style="margin-bottom:24px">
-      <div class="home-section-title">📅 向こう1ヶ月のスケジュール</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="home-section-title" style="margin-bottom:0;border-bottom:none">📅 向こう1ヶ月のスケジュール</div>
+        <button class="btn btn-gray" style="font-size:12px;padding:5px 10px" onclick="openAddHomeEventModal()">＋ 追加</button>
+      </div>
+      <div style="border-bottom:1px solid #e2e8f0;margin-bottom:10px"></div>
       <div id="home-schedules" style="max-height:280px; overflow-y:auto;"><div class="empty" style="padding:8px 0; color:#94a3b8;">読み込み中...</div></div>
     </div>
     <div style="margin-bottom:24px">
@@ -5388,6 +5419,97 @@ function renderHomeSchedules(schedules) {
     row.appendChild(nameEl);
     container.appendChild(row);
   });
+}
+
+// ----- ホームからのイベント追加 -----
+let _hemSelectedCompanyId = null;
+let _hemCompanyByLabel = {};
+
+function _todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function openAddHomeEventModal() {
+  if (!_currentUser?.id) { showToast('ログインが必要です', 'error'); return; }
+  // assigned_users 情報を持つ会社一覧（_ckCompanies）を確実に用意
+  if (!_ckCompanies || _ckCompanies.length === 0) {
+    await loadCompanyKarteData();
+  }
+  // フォーム初期化
+  document.getElementById('hem-company-search').value = '';
+  document.getElementById('hem-date').value = _todayISO();
+  document.getElementById('hem-name').value = '';
+  document.getElementById('hem-notes').value = '';
+  _hemSelectedCompanyId = null;
+  const sel = document.getElementById('hem-company-selected');
+  sel.textContent = '未選択';
+  sel.style.color = '#94a3b8';
+  // 自分が見られる会社のみ抽出
+  const role = _currentUser.role;
+  const visible = (role === 'admin' || role === 'leader')
+    ? (_ckCompanies || []).slice()
+    : (_ckCompanies || []).filter(c => (c.assigned_users || []).includes(_currentUser.id));
+  visible.sort((a, b) => (a.code || '').localeCompare(b.code || '') || (a.name || '').localeCompare(b.name || '', 'ja'));
+  // datalist に投入し、ラベル→ID マップを保持
+  const dl = document.getElementById('hem-company-list');
+  _hemCompanyByLabel = {};
+  dl.innerHTML = visible.map(c => {
+    const label = c.code ? `${c.code} ${c.name}` : c.name;
+    _hemCompanyByLabel[label] = c.id;
+    return `<option value="${esc(label)}"></option>`;
+  }).join('');
+  document.getElementById('home-event-modal').style.display = 'flex';
+}
+
+function closeAddHomeEventModal() {
+  document.getElementById('home-event-modal').style.display = 'none';
+}
+
+function onHomeEventCompanyInput() {
+  const v = document.getElementById('hem-company-search').value.trim();
+  const sel = document.getElementById('hem-company-selected');
+  if (_hemCompanyByLabel[v]) {
+    _hemSelectedCompanyId = _hemCompanyByLabel[v];
+    sel.textContent = `選択中：${v}`;
+    sel.style.color = '#1d4ed8';
+  } else {
+    _hemSelectedCompanyId = null;
+    sel.textContent = '未選択';
+    sel.style.color = '#94a3b8';
+  }
+}
+
+async function addEventFromHome() {
+  if (!_hemSelectedCompanyId) {
+    showToast('一覧から会社を選択してください', 'error');
+    return;
+  }
+  const dateVal = document.getElementById('hem-date').value;
+  const name = document.getElementById('hem-name').value.trim();
+  const notes = document.getElementById('hem-notes').value;
+  if (!dateVal || !name) {
+    showToast('日付・イベント名は必須です', 'error');
+    return;
+  }
+  const btn = document.getElementById('btn-save-home-event');
+  if (btn) { btn.disabled = true; btn.dataset._label = btn.textContent; btn.textContent = '保存中...'; }
+  try {
+    const r = await fetch('/api/company_schedules/' + encodeURIComponent(_hemSelectedCompanyId) + '/single_events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, date: dateVal, notes, user_id: _currentUser?.id })
+    });
+    if (!r.ok) throw new Error('http ' + r.status);
+    localStorage.removeItem(HOME_SCHEDULES_CACHE_KEY);
+    showToast('イベントを追加しました');
+    closeAddHomeEventModal();
+    await loadHomeSchedules();
+  } catch (e) {
+    showToast('保存に失敗しました', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset._label || '保存'; }
+  }
 }
 
 async function showCompanyKarteDetail(companyId, defaultTab) {
