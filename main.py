@@ -2490,6 +2490,7 @@ _KARTE_ATTR_BOOL_FIELDS = (
     "withholding_tax", "withholding_special",
     "payroll", "mtg",
     "simplified_tax_check", "notification_filing",
+    "predetermined_salary",
 )
 _KARTE_ATTR_STR_FIELDS = ("entity_type", "consumption_tax")
 _KARTE_ATTR_INT_FIELDS = ("payroll_day", "mtg_day")
@@ -2563,6 +2564,10 @@ def _generate_fixed_events(company: dict) -> list:
             events.append(make_event("消費税申告期限", "yearly", month=ct_month, day=_month_end_day(ct_month)))
             # 課税事業者は毎期判定が必要なため、決算月末に生成
             events.append(make_event("簡易課税判定", "yearly", month=fiscal_month, day=_month_end_day(fiscal_month)))
+
+        if bool(company.get("predetermined_salary")):
+            ps_month = _add_months(fiscal_month, 3)
+            events.append(make_event("事前確定給与届出", "yearly", month=ps_month, day=_month_end_day(ps_month)))
 
     elif entity_type == "individual":
         events.append(make_event("所得税申告期限", "yearly", month=3, day=15))

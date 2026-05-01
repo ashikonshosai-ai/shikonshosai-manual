@@ -869,6 +869,7 @@
               <div id="cm-corp-only" style="display:none; margin-top:6px;">
                 <label style="font-size:12px; color:#475569; display:block;"><input id="cm-tax-extension" type="checkbox" /> 法人税申告期限延長</label>
                 <label style="font-size:12px; color:#475569; display:block;"><input id="cm-ct-extension" type="checkbox" /> 消費税申告期限延長</label>
+                <label style="font-size:12px; color:#475569; display:block;"><input id="cm-predetermined-salary" type="checkbox" /> 事前確定給与届出あり</label>
               </div>
             </div>
 
@@ -934,7 +935,8 @@ name,code,type,fiscal_month,industry,contract_types,freee_enabled,notes
 [+ 業務属性カラム（任意・列ごと省略可）]
 entity_type,consumption_tax,tax_extension,consumption_tax_extension,
 withholding_tax,withholding_special,payroll,payroll_day,
-mtg,mtg_day,simplified_tax_check,notification_filing
+mtg,mtg_day,simplified_tax_check,notification_filing,
+predetermined_salary
 
 例：
 〇〇クリニック,101234,bookkeeping,1,医療（歯科）,記帳代行;給与計算,1,特記事項
@@ -4570,6 +4572,7 @@ function fillCompanyAttrModal(c) {
   document.getElementById('cm-consumption-tax').value = c.consumption_tax || 'standard';
   document.getElementById('cm-tax-extension').checked = !!c.tax_extension;
   document.getElementById('cm-ct-extension').checked = !!c.consumption_tax_extension;
+  document.getElementById('cm-predetermined-salary').checked = !!c.predetermined_salary;
   document.getElementById('cm-withholding').checked = !!c.withholding_tax;
   document.getElementById('cm-withholding-special').checked = !!c.withholding_special;
   document.getElementById('cm-payroll').checked = !!c.payroll;
@@ -4592,6 +4595,7 @@ function collectCompanyAttrModal() {
     consumption_tax: document.getElementById('cm-consumption-tax').value || null,
     tax_extension: entityType === 'corporation' && document.getElementById('cm-tax-extension').checked,
     consumption_tax_extension: entityType === 'corporation' && document.getElementById('cm-ct-extension').checked,
+    predetermined_salary: entityType === 'corporation' && document.getElementById('cm-predetermined-salary').checked,
     withholding_tax: document.getElementById('cm-withholding').checked,
     withholding_special: document.getElementById('cm-withholding').checked && document.getElementById('cm-withholding-special').checked,
     payroll: document.getElementById('cm-payroll').checked,
@@ -4828,6 +4832,7 @@ function renderInfoTab() {
   const corpRows = isCorp ? `
         ${_yesNoRow('法人税申告期限延長', c.tax_extension)}
         ${_yesNoRow('消費税申告期限延長', c.consumption_tax_extension)}
+        ${_yesNoRow('事前確定給与届出', c.predetermined_salary)}
   ` : '';
 
   document.getElementById('ck-tab-content').innerHTML = `
