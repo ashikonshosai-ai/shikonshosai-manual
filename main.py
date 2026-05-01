@@ -2001,7 +2001,7 @@ async def get_companies_upstream():
     if _companies_cache and time.time() - _companies_cache_at < COMPANIES_CACHE_TTL:
         return _companies_cache
 
-    upstream_url = f"{SHIKONSHOSAI_APP_URL}/api/internal/companies"
+    upstream_url = f"{SHIKONSHOSAI_APP_URL}/api/internal/companies_for_daily_report"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(upstream_url, params={"secret": INTERNAL_SECRET})
