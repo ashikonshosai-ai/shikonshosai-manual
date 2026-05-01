@@ -47,6 +47,7 @@ USERS_PATH    = "/外注先共有/400000_CC/shikonshosai/users.json"
 IMAGES_BASE   = "/外注先共有/400000_CC/shikonshosai/manual_images"
 REPORTS_BASE  = "/外注先共有/400000_CC/shikonshosai/reports"
 COMPANIES_PATH         = "/外注先共有/400000_CC/shikonshosai/companies.json"
+COMPANY_PROGRESS_BASE  = "/外注先共有/400000_CC/shikonshosai/company_progress/"
 COMPANY_MANUALS_BASE   = "/外注先共有/400000_CC/shikonshosai/company_manuals"
 COMPANY_SCHEDULES_BASE = "/外注先共有/400000_CC/shikonshosai/company_schedules"
 CACHE_TTL_COMPANIES    = 30 * 24 * 60 * 60  # 30日
@@ -3007,11 +3008,71 @@ async def delete_memo(company_id: str, memo_id: str, request: Request):
 
 # ----- ホーム用スケジュール -----
 
+def _company_progress_path(company_id: str) -> str:
+    return f"{COMPANY_PROGRESS_BASE}{company_id}.json"
+
+
+async def _load_company_progress(company_id: str) -> list:
+    """会社の当月完了済みイベントID一覧を返す（year_monthが当月でなければ空）。"""
+    current_ym = date.today().strftime('%Y-%m')
+    data = await dropbox_get(_company_progress_path(company_id))
+    if not data or data.get('year_month') != current_ym:
+        return []
+    return list(data.get('completed_events', []))
+
+
+@app.get("/api/company_progress/{company_id}")
+async def get_company_progress(company_id: str):
+    """会社の当月進捗を取得する。当月でない場合は空データを返す。"""
+    current_ym = date.today().strftime('%Y-%m')
+    data = await dropbox_get(_company_progress_path(company_id))
+    if not data or data.get('year_month') != current_ym:
+        return {"year_month": current_ym, "completed_events": []}
+    return {
+        "year_month": current_ym,
+        "completed_events": list(data.get('completed_events', [])),
+    }
+
+
+@app.post("/api/company_progress/{company_id}/toggle")
+async def toggle_company_progress(company_id: str, request: Request):
+    """固定イベントの完了状態をトグルする。"""
+    body = await request.json()
+    event_id = body.get('event_id')
+    if not event_id:
+        raise HTTPException(status_code=400, detail="event_id is required")
+
+    current_ym = date.today().strftime('%Y-%m')
+    data = await dropbox_get(_company_progress_path(company_id))
+    if not data or data.get('year_month') != current_ym:
+        data = {"year_month": current_ym, "completed_events": []}
+
+    completed = list(data.get('completed_events', []))
+    if event_id in completed:
+        completed.remove(event_id)
+    else:
+        completed.append(event_id)
+    data['year_month'] = current_ym
+    data['completed_events'] = completed
+    await dropbox_save(_company_progress_path(company_id), data)
+    return data
+
+
 @app.get("/api/home/schedules")
 async def get_home_schedules(user_id: str = Query(...)):
     companies_data = await dropbox_get(COMPANIES_PATH) or {"companies": []}
     today = date.today()
     end = today + timedelta(days=30)
+    # 担当会社のIDを先に集めて progress を並列取得
+    assigned_company_ids = [
+        c.get("id") for c in companies_data.get("companies", [])
+        if user_id in (c.get("assigned_users") or [])
+    ]
+    progress_results = await asyncio.gather(
+        *[_load_company_progress(cid) for cid in assigned_company_ids]
+    )
+    progress_map = dict(zip(assigned_company_ids, progress_results))
+
     results = []
     for c in companies_data.get("companies", []):
         if user_id not in (c.get("assigned_users") or []):
@@ -3035,6 +3096,7 @@ async def get_home_schedules(user_id: str = Query(...)):
                 "event_type": "single",
                 "name": ev.get("name", ""),
                 "notes": ev.get("notes", ""),
+                "completed": False,
             })
         for ev in sched.get("fixed_events", []):
             recurrence = ev.get("recurrence", "monthly")
@@ -3065,6 +3127,7 @@ async def get_home_schedules(user_id: str = Query(...)):
                             "event_type": "fixed_monthly",
                             "name": ev.get("name", ""),
                             "notes": ev.get("notes", ""),
+                            "completed": ev.get("id") in progress_map.get(cid, []),
                         })
             else:
                 m = int(ev.get("month") or 0)
@@ -3086,6 +3149,7 @@ async def get_home_schedules(user_id: str = Query(...)):
                             "event_type": "fixed_yearly",
                             "name": ev.get("name", ""),
                             "notes": ev.get("notes", ""),
+                            "completed": ev.get("id") in progress_map.get(cid, []),
                         })
     results.sort(key=lambda r: (r["date"], r["company_name"]))
     return {"schedules": results}

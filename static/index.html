@@ -4408,6 +4408,7 @@ let _ckCompanies = [];
 let _ckUsers = [];
 let _ckCurrentCompanyId = null;
 let _ckCurrentSchedule = null;
+let _ckCurrentProgress = { year_month: '', completed_events: [] };
 let _ckCurrentManual = null;
 let _ckCurrentTab = 'info';
 let _ckQuillInstance = null;
@@ -4707,15 +4708,20 @@ function backToCompanyList() {
 
 async function loadKarteData(companyId) {
   try {
-    const [mRes, sRes] = await Promise.all([
+    const [mRes, sRes, pRes] = await Promise.all([
       fetch('/api/company_manuals/' + encodeURIComponent(companyId)),
-      fetch('/api/company_schedules/' + encodeURIComponent(companyId))
+      fetch('/api/company_schedules/' + encodeURIComponent(companyId)),
+      fetch('/api/company_progress/' + encodeURIComponent(companyId))
     ]);
     _ckCurrentManual = await mRes.json();
     _ckCurrentSchedule = await sRes.json();
+    _ckCurrentProgress = pRes.ok
+      ? await pRes.json()
+      : { year_month: '', completed_events: [] };
   } catch (e) {
     _ckCurrentManual = { content: '' };
     _ckCurrentSchedule = { fixed_events: [], single_events: [], memos: [] };
+    _ckCurrentProgress = { year_month: '', completed_events: [] };
   }
 }
 
@@ -4928,17 +4934,62 @@ function canEditKarte(company) {
   return false;
 }
 
+async function toggleFixedEventComplete(eventId, checkbox) {
+  const companyId = _ckCurrentCompanyId;
+  if (!companyId || !eventId) return;
+  // optimistic update：先にローカル状態と表示を更新
+  const list = (_ckCurrentProgress && _ckCurrentProgress.completed_events) || [];
+  const wasDone = list.includes(eventId);
+  if (checkbox.checked && !wasDone) list.push(eventId);
+  if (!checkbox.checked && wasDone) {
+    const idx = list.indexOf(eventId);
+    if (idx >= 0) list.splice(idx, 1);
+  }
+  _ckCurrentProgress = _ckCurrentProgress || { year_month: '', completed_events: [] };
+  _ckCurrentProgress.completed_events = list;
+  try {
+    const r = await fetch('/api/company_progress/' + encodeURIComponent(companyId) + '/toggle', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ event_id: eventId })
+    });
+    if (!r.ok) throw new Error('http ' + r.status);
+    _ckCurrentProgress = await r.json();
+    localStorage.removeItem(HOME_SCHEDULES_CACHE_KEY);
+    renderScheduleTab();
+  } catch (e) {
+    // 失敗したらロールバック
+    if (checkbox.checked && list.includes(eventId)) {
+      const idx = list.indexOf(eventId);
+      if (idx >= 0) list.splice(idx, 1);
+    } else if (!checkbox.checked && !list.includes(eventId)) {
+      list.push(eventId);
+    }
+    checkbox.checked = !checkbox.checked;
+    renderScheduleTab();
+  }
+}
+
 function renderScheduleTab() {
   const s = _ckCurrentSchedule || { fixed_events: [], single_events: [] };
   const c = _ckCurrentCompany();
   const editable = canEditKarte(c);
-  const fixedRows = (s.fixed_events || []).map(ev => {
+  const completedSet = new Set((_ckCurrentProgress && _ckCurrentProgress.completed_events) || []);
+  const fixedSorted = (s.fixed_events || []).slice().sort((a, b) => {
+    const ca = completedSet.has(a.id) ? 1 : 0;
+    const cb = completedSet.has(b.id) ? 1 : 0;
+    return ca - cb;
+  });
+  const fixedRows = fixedSorted.map(ev => {
     const dateStr = ev.recurrence === 'monthly' ? `毎月${ev.day_of_month}日` : `毎年${ev.month}月${ev.day}日`;
     const recur = ev.recurrence === 'monthly' ? '毎月' : '毎年';
     const actions = editable
       ? `<button class="btn-sm" onclick="editFixedEvent('${ev.id}')">編集</button> <button class="btn-text-red" onclick="deleteFixedEvent('${ev.id}', this)">削除</button>`
       : '';
-    return `<tr>
+    const isDone = completedSet.has(ev.id);
+    const rowStyle = isDone ? ' style="opacity:0.4;"' : '';
+    return `<tr${rowStyle}>
+      <td style="text-align:center;"><input type="checkbox" ${isDone ? 'checked' : ''} onchange="toggleFixedEventComplete('${ev.id}', this)" style="width:15px;height:15px;cursor:pointer;" /></td>
       <td>${esc(ev.name)}</td>
       <td>${recur}</td>
       <td>${dateStr}</td>
@@ -4971,8 +5022,8 @@ function renderScheduleTab() {
       </div>
       <div id="ck-fixed-form" style="display:none; background:#f0f7ff; border:1px solid #93c5fd; border-radius:8px; padding:10px; margin-bottom:10px;"></div>
       <table class="ck-table">
-        <thead><tr><th>イベント名</th><th>繰り返し</th><th>日付</th><th>備考</th><th></th></tr></thead>
-        <tbody>${fixedRows || '<tr><td colspan="5" style="text-align:center; color:#94a3b8;">固定イベントはありません</td></tr>'}</tbody>
+        <thead><tr><th style="width:42px; text-align:center;">完了</th><th>イベント名</th><th>繰り返し</th><th>日付</th><th>備考</th><th></th></tr></thead>
+        <tbody>${fixedRows || '<tr><td colspan="6" style="text-align:center; color:#94a3b8;">固定イベントはありません</td></tr>'}</tbody>
       </table>
     </div>
     <div>
@@ -5270,17 +5321,51 @@ function renderHomeSchedules(schedules) {
     container.innerHTML = '<div class="empty" style="padding:8px 0; color:#94a3b8;">向こう1ヶ月の予定はありません</div>';
     return;
   }
-  const sorted = schedules.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  // 未完了を上、完了済みを下。各グループ内は日付昇順
+  const sorted = schedules.slice().sort((a, b) => {
+    const ca = a.completed ? 1 : 0;
+    const cb = b.completed ? 1 : 0;
+    if (ca !== cb) return ca - cb;
+    return (a.date || '').localeCompare(b.date || '');
+  });
   container.innerHTML = '';
   sorted.forEach(s => {
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid #e2e8f0;cursor:pointer;';
+    const isFixed = s.event_type === 'fixed_monthly' || s.event_type === 'fixed_yearly';
+    row.style.cssText = `display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid #e2e8f0;cursor:pointer;opacity:${s.completed ? 0.4 : 1};`;
 
-    const dotColor = s.event_type === 'single' ? '#2563eb'
-      : s.event_type === 'fixed_monthly' ? '#EF9F27' : '#1D9E75';
-    const dot = document.createElement('div');
-    dot.style.cssText = `width:6px;height:6px;border-radius:50%;flex-shrink:0;margin:0 4px 0 5px;background:${dotColor};`;
-    row.appendChild(dot);
+    if (isFixed) {
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = !!s.completed;
+      checkbox.style.cssText = 'width:15px;height:15px;cursor:pointer;flex-shrink:0;margin:0 0 0 3px;';
+      checkbox.addEventListener('click', (ev) => ev.stopPropagation());
+      checkbox.addEventListener('change', async (ev) => {
+        ev.stopPropagation();
+        const newChecked = checkbox.checked;
+        s.completed = newChecked;
+        row.style.opacity = newChecked ? '0.4' : '1';
+        try {
+          const r = await fetch('/api/company_progress/' + encodeURIComponent(s.company_id) + '/toggle', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ event_id: s.event_id })
+          });
+          if (!r.ok) throw new Error('http ' + r.status);
+          localStorage.removeItem(HOME_SCHEDULES_CACHE_KEY);
+        } catch (e) {
+          // ロールバック
+          checkbox.checked = !newChecked;
+          s.completed = !newChecked;
+          row.style.opacity = !newChecked ? '0.4' : '1';
+        }
+      });
+      row.appendChild(checkbox);
+    } else {
+      const dot = document.createElement('div');
+      dot.style.cssText = 'width:6px;height:6px;border-radius:50%;flex-shrink:0;margin:0 4px 0 8px;background:#2563eb;';
+      row.appendChild(dot);
+    }
 
     const dateEl = document.createElement('span');
     dateEl.style.cssText = 'font-size:12px;color:#64748b;min-width:72px;flex-shrink:0;font-weight:600;';
@@ -5294,10 +5379,13 @@ function renderHomeSchedules(schedules) {
     nameEl.style.cssText = 'font-size:13px;color:#0f172a;flex:1;';
     nameEl.textContent = s.name || '';
 
+    [dateEl, companyEl, nameEl].forEach(el => {
+      el.addEventListener('click', () => showCompanyKarteDetail(s.company_id, 'schedule'));
+    });
+
     row.appendChild(dateEl);
     row.appendChild(companyEl);
     row.appendChild(nameEl);
-    row.addEventListener('click', () => showCompanyKarteDetail(s.company_id, 'schedule'));
     container.appendChild(row);
   });
 }
