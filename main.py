@@ -846,6 +846,123 @@ async def download_reports_excel(
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"}
     )
 
+@app.get("/api/reports/excel_amount/{year_month}")
+async def download_reports_excel_amount(
+    year_month: str,
+    user_id: str = Query(None)
+):
+    if not user_id:
+        raise HTTPException(status_code=401)
+    users_data = await dropbox_get(USERS_PATH)
+    if not users_data:
+        raise HTTPException(status_code=500)
+    current_user = next((u for u in users_data.get("users", []) if u.get("id") == user_id), None)
+    if not current_user or current_user.get("role", "staff") == "staff":
+        raise HTTPException(status_code=403)
+
+    if current_user["role"] == "admin":
+        target_users = users_data["users"]
+    else:
+        my_group = current_user.get("group", "")
+        target_users = [u for u in users_data["users"] if u.get("group") == my_group]
+
+    def _to_rate(v) -> float:
+        try:
+            return float(v) if v not in (None, "") else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    rate_by_name = {
+        u.get("name", u["id"]): _to_rate(u.get("hourly_rate"))
+        for u in target_users
+    }
+
+    async def fetch_report(user):
+        path = f"{REPORTS_BASE}/{user['id']}_{year_month}.json"
+        try:
+            data = await dropbox_get(path)
+            return user.get("name", user["id"]), (data or {}).get("entries", [])
+        except Exception:
+            return user.get("name", user["id"]), []
+
+    results = await asyncio.gather(*[fetch_report(u) for u in target_users])
+
+    # 会社×スタッフのクロス集計（金額 = 時間 × 時給）
+    companies: dict = {}
+    for uname, entries in results:
+        rate = rate_by_name.get(uname, 0.0)
+        for e in entries:
+            company = e.get("company_name") or "（会社名なし）"
+            if company not in companies:
+                companies[company] = {}
+            amount = round((e.get("hours", 0) or 0) * rate)
+            companies[company][uname] = companies[company].get(uname, 0) + amount
+
+    staff_names = [r[0] for r in results]
+    sorted_companies = sorted(
+        companies.items(),
+        key=lambda kv: sum(kv[1].values()),
+        reverse=True
+    )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "金額集計"
+
+    header_fill = PatternFill(fill_type="solid", fgColor="2563EB")
+    header_font = Font(bold=True, color="FFFFFF")
+    center = Alignment(horizontal="center")
+
+    header = ["会社名"] + staff_names + ["合計"]
+    for col, val in enumerate(header, 1):
+        cell = ws.cell(row=1, column=col, value=val)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center
+
+    for row_idx, (company, staff_amounts) in enumerate(sorted_companies, 2):
+        ws.cell(row=row_idx, column=1, value=company)
+        row_total = 0
+        for col_idx, sname in enumerate(staff_names, 2):
+            a = int(staff_amounts.get(sname, 0))
+            if a > 0:
+                cell = ws.cell(row=row_idx, column=col_idx, value=a)
+                cell.number_format = "#,##0"
+                row_total += a
+        total_cell = ws.cell(row=row_idx, column=len(staff_names) + 2, value=row_total)
+        total_cell.number_format = "#,##0"
+
+    total_row = len(sorted_companies) + 2
+    ws.cell(row=total_row, column=1, value="合計").font = Font(bold=True)
+    grand_total = 0
+    for col_idx, sname in enumerate(staff_names, 2):
+        col_total = int(sum(v.get(sname, 0) for v in companies.values()))
+        if col_total > 0:
+            c = ws.cell(row=total_row, column=col_idx, value=col_total)
+            c.font = Font(bold=True)
+            c.number_format = "#,##0"
+        grand_total += col_total
+    gc_cell = ws.cell(row=total_row, column=len(staff_names) + 2, value=grand_total)
+    gc_cell.font = Font(bold=True)
+    gc_cell.number_format = "#,##0"
+
+    ws.column_dimensions["A"].width = 25
+    from openpyxl.utils import get_column_letter
+    for i in range(2, len(staff_names) + 3):
+        ws.column_dimensions[get_column_letter(i)].width = 14
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    from urllib.parse import quote
+    filename = quote(f"グループ金額集計_{year_month}.xlsx")
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"}
+    )
+
 @app.get("/api/reports/{user_id}/{year_month}")
 async def get_report(user_id: str, year_month: str):
     path = f"{REPORTS_BASE}/{user_id}_{year_month}.json"

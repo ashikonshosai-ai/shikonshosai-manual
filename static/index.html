@@ -1035,6 +1035,10 @@ code,emails
         </div>
         <!-- グループ集計タブ内容 -->
         <div id="report-tab-group" style="display:none;">
+          <div style="display:flex; gap:0; margin-bottom:10px; border-bottom:1px solid #e2e8f0;">
+            <button id="subtab-group-hours" onclick="switchGroupSubTab('hours')" style="padding:6px 16px; font-size:13px; font-weight:600; border:none; background:none; cursor:pointer; color:#1d4ed8; border-bottom:2px solid #1d4ed8; margin-bottom:-1px;">時間</button>
+            <button id="subtab-group-amount" onclick="switchGroupSubTab('amount')" style="padding:6px 16px; font-size:13px; font-weight:600; border:none; background:none; cursor:pointer; color:#94a3b8; border-bottom:2px solid transparent; margin-bottom:-1px;">金額</button>
+          </div>
           <div id="group-tab-content"><div style="padding:20px; text-align:center; color:#94a3b8;">読み込み中...</div></div>
         </div>
       </div>
@@ -1092,6 +1096,8 @@ let _openQId = null;
 let _editCatId = null, _editManualId = null;
 let _editImages = []; // { path, caption, url }
 let quillInstance = null;
+let _groupSubTab = 'hours'; // 'hours' | 'amount'
+let _hourlyRateByUserId = null; // { uid: hourly_rate } をキャッシュ
 
 function initQuill(content) {
   if (quillInstance) {
@@ -3795,18 +3801,59 @@ async function fetchGroupReports(yearMonth) {
 }
 
 function downloadGroupExcel() {
-  const url = `/api/reports/excel/${_currentReportMonth}?user_id=${encodeURIComponent(_currentUser?.id || '')}`;
+  const path = _groupSubTab === 'amount' ? 'excel_amount' : 'excel';
+  const url = `/api/reports/${path}/${_currentReportMonth}?user_id=${encodeURIComponent(_currentUser?.id || '')}`;
   window.open(url, '_blank');
+}
+
+function _updateGroupExcelButtonLabel() {
+  const btn = document.getElementById('btn-excel-download');
+  if (!btn) return;
+  btn.textContent = _groupSubTab === 'amount' ? '📥 金額集計Excel' : '📥 時間集計Excel';
+}
+
+function switchGroupSubTab(tab) {
+  _groupSubTab = tab;
+  const tabHours  = document.getElementById('subtab-group-hours');
+  const tabAmount = document.getElementById('subtab-group-amount');
+  const active   = 'color:#1d4ed8; border-bottom:2px solid #1d4ed8;';
+  const inactive = 'color:#94a3b8; border-bottom:2px solid transparent;';
+  if (tabHours)  tabHours.style.cssText  = `padding:6px 16px; font-size:13px; font-weight:600; border:none; background:none; cursor:pointer; margin-bottom:-1px; ${tab === 'hours' ? active : inactive}`;
+  if (tabAmount) tabAmount.style.cssText = `padding:6px 16px; font-size:13px; font-weight:600; border:none; background:none; cursor:pointer; margin-bottom:-1px; ${tab === 'amount' ? active : inactive}`;
+  _updateGroupExcelButtonLabel();
+  renderGroupTab();
+}
+
+async function _ensureHourlyRates() {
+  if (_hourlyRateByUserId) return _hourlyRateByUserId;
+  try {
+    const r = await fetch('/api/users');
+    const d = await r.json();
+    const map = {};
+    (d.users || []).forEach(u => {
+      const v = u.hourly_rate;
+      const num = (v === '' || v == null) ? 0 : Number(v);
+      map[u.id] = isNaN(num) ? 0 : num;
+    });
+    _hourlyRateByUserId = map;
+    return map;
+  } catch (e) {
+    console.warn('[hourly_rates] 取得失敗', e);
+    _hourlyRateByUserId = {};
+    return _hourlyRateByUserId;
+  }
 }
 
 function refreshGroupReport() {
   localStorage.removeItem(`report_cache_${_currentReportMonth}`);
+  _hourlyRateByUserId = null;
   renderGroupTab();
 }
 
 async function renderGroupTab() {
   const el = document.getElementById('group-tab-content');
   el.innerHTML = '<div style="padding:20px; text-align:center; color:#94a3b8;">読み込み中...</div>';
+  _updateGroupExcelButtonLabel();
   let data;
   try {
     data = await fetchGroupReports(_currentReportMonth);
@@ -3815,6 +3862,9 @@ async function renderGroupTab() {
     return;
   }
   _allReportsData = data;
+
+  const isAmount = _groupSubTab === 'amount';
+  const rateMap = isAmount ? await _ensureHourlyRates() : null;
 
   const users = Object.entries(data)
     .map(([uid, d]) => ({ uid, name: d.user_name }))
@@ -3825,13 +3875,16 @@ async function renderGroupTab() {
     return;
   }
 
-  // Build matrix[company][uid] = hours
+  // Build matrix[company][uid] = hours OR amount
   const matrix = {};
   users.forEach(({ uid }) => {
+    const rate = isAmount ? (rateMap[uid] || 0) : 1;
     (data[uid]?.entries || []).forEach(e => {
       const company = e.company_name || '（会社名なし）';
       if (!matrix[company]) matrix[company] = {};
-      matrix[company][uid] = (matrix[company][uid] || 0) + (e.hours || 0);
+      const hours = e.hours || 0;
+      const value = isAmount ? Math.round(hours * rate) : hours;
+      matrix[company][uid] = (matrix[company][uid] || 0) + value;
     });
   });
 
@@ -3851,23 +3904,32 @@ async function renderGroupTab() {
   const tdR = 'padding:6px 10px; text-align:right; font-size:12px; border-bottom:1px solid #f1f5f9;';
   const tdL = 'padding:6px 10px; font-size:12px; border-bottom:1px solid #f1f5f9; white-space:nowrap;';
 
+  const fmtCell = (val, uid) => {
+    if (isAmount) {
+      const hasRate = uid == null ? true : (rateMap[uid] || 0) > 0;
+      if (val === 0 || !hasRate) return 'ー';
+      return '¥' + Math.round(val).toLocaleString();
+    }
+    return formatHoursDecimal(val);
+  };
+
   const headerCols = users.map(u => `<th style="${thR}">${esc(u.name)}</th>`).join('');
 
   const rows = companies.map(company => {
     const companyTotal = users.reduce((s, { uid }) => s + (matrix[company][uid] || 0), 0);
     const cells = users.map(({ uid }) => {
-      const h = matrix[company][uid] || 0;
-      return `<td style="${tdR}">${formatHoursDecimal(h)}</td>`;
+      const v = matrix[company][uid] || 0;
+      return `<td style="${tdR}">${fmtCell(v, uid)}</td>`;
     }).join('');
     return `<tr>
       <td style="${tdL}">${esc(company)}</td>
       ${cells}
-      <td style="${tdR} font-weight:600;">${formatHoursDecimal(companyTotal)}</td>
+      <td style="${tdR} font-weight:600;">${fmtCell(companyTotal, null)}</td>
     </tr>`;
   }).join('');
 
   const footerCells = users.map(({ uid }) =>
-    `<td style="${tdR} font-weight:700; background:#f8fafc; border-top:2px solid #e2e8f0;">${formatHoursDecimal(userTotals[uid])}</td>`
+    `<td style="${tdR} font-weight:700; background:#f8fafc; border-top:2px solid #e2e8f0;">${fmtCell(userTotals[uid], uid)}</td>`
   ).join('');
 
   el.innerHTML = `
@@ -3888,7 +3950,7 @@ async function renderGroupTab() {
           <tr>
             <td style="padding:6px 10px; font-size:12px; font-weight:700; background:#f8fafc; border-top:2px solid #e2e8f0;">合計</td>
             ${footerCells}
-            <td style="${tdR} font-weight:700; background:#f8fafc; border-top:2px solid #e2e8f0;">${formatHoursDecimal(grandTotal)}</td>
+            <td style="${tdR} font-weight:700; background:#f8fafc; border-top:2px solid #e2e8f0;">${fmtCell(grandTotal, null)}</td>
           </tr>
         </tfoot>
       </table>
