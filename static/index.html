@@ -874,8 +874,9 @@
 
             <div>
               <div style="font-size:12px; color:#475569; font-weight:600; margin-bottom:6px;">源泉・給与</div>
-              <label style="font-size:12px; color:#475569; display:block;"><input id="cm-withholding" type="checkbox" onchange="updateCompanyAttrUI()" /> 源泉納付あり</label>
+              <label style="font-size:12px; color:#475569; display:block;"><input id="cm-withholding" type="checkbox" onchange="updateCompanyAttrUI()" /> 給与等源泉所得税あり</label>
               <label id="cm-withholding-special-wrap" style="font-size:12px; color:#475569; display:none; margin-left:18px;"><input id="cm-withholding-special" type="checkbox" /> 源泉納期特例</label>
+              <label style="font-size:12px; color:#475569; display:block;"><input id="cm-reward-withholding" type="checkbox" /> 報酬等源泉所得税あり</label>
               <label style="font-size:12px; color:#475569; display:block;"><input id="cm-payroll" type="checkbox" onchange="updateCompanyAttrUI()" /> 給与計算あり</label>
               <div id="cm-payroll-detail-wrap" style="display:none; margin-left:18px;">
                 <div style="font-size:12px; color:#475569; display:flex; align-items:center; gap:6px; margin-top:4px; flex-wrap:wrap;">
@@ -953,8 +954,9 @@
 name,code,type,fiscal_month,industry,contract_types,freee_enabled,notes
 [+ 業務属性カラム（任意・列ごと省略可）]
 entity_type,consumption_tax,tax_extension,consumption_tax_extension,
-withholding_tax,withholding_special,payroll,payroll_day,
-payroll_closing_type,payroll_closing_day,payroll_payment_month,payroll_payment_day,
+withholding_tax,withholding_special,reward_withholding,
+payroll,payroll_day,payroll_closing_type,payroll_closing_day,
+payroll_payment_month,payroll_payment_day,
 mtg,mtg_day,simplified_tax_check,notification_filing
 
 例：
@@ -4593,6 +4595,7 @@ function fillCompanyAttrModal(c) {
   document.getElementById('cm-ct-extension').checked = !!c.consumption_tax_extension;
   document.getElementById('cm-withholding').checked = !!c.withholding_tax;
   document.getElementById('cm-withholding-special').checked = !!c.withholding_special;
+  document.getElementById('cm-reward-withholding').checked = !!c.reward_withholding;
   document.getElementById('cm-payroll').checked = !!c.payroll;
   document.getElementById('cm-payroll-closing-type').value = c.payroll_closing_type || 'month_end';
   document.getElementById('cm-payroll-closing-day').value = c.payroll_closing_day || 20;
@@ -4621,6 +4624,7 @@ function collectCompanyAttrModal() {
     consumption_tax_extension: entityType === 'corporation' && document.getElementById('cm-ct-extension').checked,
     withholding_tax: document.getElementById('cm-withholding').checked,
     withholding_special: document.getElementById('cm-withholding').checked && document.getElementById('cm-withholding-special').checked,
+    reward_withholding: document.getElementById('cm-reward-withholding').checked,
     payroll: document.getElementById('cm-payroll').checked,
     payroll_closing_type: document.getElementById('cm-payroll-closing-type').value || 'month_end',
     payroll_closing_day: document.getElementById('cm-payroll-closing-type').value === 'specific'
@@ -4898,8 +4902,9 @@ function renderInfoTab() {
       </table>
       <div style="font-size:12px; color:#475569; font-weight:600; margin:14px 0 4px;">源泉・給与</div>
       <table style="width:100%; font-size:13px;">
-        ${_yesNoRow('源泉納付', c.withholding_tax)}
+        ${_yesNoRow('給与等源泉所得税', c.withholding_tax)}
         ${withholdingRow}
+        ${_yesNoRow('報酬等源泉所得税', c.reward_withholding)}
         ${_yesNoRow('給与計算', c.payroll)}
         ${payrollDayRow}
       </table>

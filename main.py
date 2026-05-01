@@ -2490,6 +2490,7 @@ _KARTE_ATTR_BOOL_FIELDS = (
     "withholding_tax", "withholding_special",
     "payroll", "mtg",
     "simplified_tax_check", "notification_filing",
+    "reward_withholding",
 )
 _KARTE_ATTR_STR_FIELDS = ("entity_type", "consumption_tax", "payroll_closing_type", "payroll_payment_month")
 _KARTE_ATTR_INT_FIELDS = ("payroll_day", "mtg_day", "payroll_closing_day", "payroll_payment_day")
@@ -2576,10 +2577,14 @@ def _generate_fixed_events(company: dict) -> list:
 
     if withholding:
         if withholding_special:
-            events.append(make_event("源泉納付（1〜6月分）", "yearly", month=7, day=10))
-            events.append(make_event("源泉納付（7〜12月分）", "yearly", month=1, day=20))
+            events.append(make_event("給与等源泉所得税（1〜6月分）", "yearly", month=7, day=10))
+            events.append(make_event("給与等源泉所得税（7〜12月分）", "yearly", month=1, day=20))
         else:
-            events.append(make_event("源泉納付", "monthly", day_of_month=10))
+            events.append(make_event("給与等源泉所得税", "monthly", day_of_month=10))
+
+    # 報酬等源泉所得税（毎月10日固定・納期特例なし）
+    if bool(company.get("reward_withholding")):
+        events.append(make_event("報酬等源泉所得税", "monthly", day_of_month=10))
 
     if payroll:
         payment_day = company.get("payroll_payment_day")
