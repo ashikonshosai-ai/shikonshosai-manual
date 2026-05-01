@@ -4594,7 +4594,6 @@ function fillCompanyAttrModal(c) {
   document.getElementById('cm-withholding').checked = !!c.withholding_tax;
   document.getElementById('cm-withholding-special').checked = !!c.withholding_special;
   document.getElementById('cm-payroll').checked = !!c.payroll;
-  document.getElementById('cm-payroll-day').value = c.payroll_day || 25;
   document.getElementById('cm-payroll-closing-type').value = c.payroll_closing_type || 'month_end';
   document.getElementById('cm-payroll-closing-day').value = c.payroll_closing_day || 20;
   document.getElementById('cm-payroll-payment-month').value = c.payroll_payment_month || 'current';
@@ -4623,7 +4622,6 @@ function collectCompanyAttrModal() {
     withholding_tax: document.getElementById('cm-withholding').checked,
     withholding_special: document.getElementById('cm-withholding').checked && document.getElementById('cm-withholding-special').checked,
     payroll: document.getElementById('cm-payroll').checked,
-    payroll_day: parseInt(document.getElementById('cm-payroll-day').value) || 25,
     payroll_closing_type: document.getElementById('cm-payroll-closing-type').value || 'month_end',
     payroll_closing_day: document.getElementById('cm-payroll-closing-type').value === 'specific'
       ? (parseInt(document.getElementById('cm-payroll-closing-day').value) || null)
