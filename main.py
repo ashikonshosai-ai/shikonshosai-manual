@@ -2001,20 +2001,25 @@ async def get_companies_upstream():
     if _companies_cache and time.time() - _companies_cache_at < COMPANIES_CACHE_TTL:
         return _companies_cache
 
+    upstream_url = f"{SHIKONSHOSAI_APP_URL}/api/internal/companies"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(
-                f"{SHIKONSHOSAI_APP_URL}/api/internal/companies",
-                params={"secret": INTERNAL_SECRET}
-            )
-            if r.status_code == 200:
-                _companies_cache = r.json()
-                _companies_cache_at = time.time()
-                return _companies_cache
+            r = await client.get(upstream_url, params={"secret": INTERNAL_SECRET})
     except Exception as e:
-        print(f"[companies] 取得失敗: {e}")
+        print(f"[companies] 取得失敗 type={type(e).__name__} msg={e}")
+        raise HTTPException(status_code=502, detail="upstream_unreachable")
 
-    return []
+    if r.status_code != 200:
+        print(f"[companies] upstream非200 url={upstream_url} status={r.status_code} body={r.text[:500]!r}")
+        raise HTTPException(status_code=502, detail="upstream_error")
+
+    data = r.json()
+    if isinstance(data, list) and len(data) > 0:
+        _companies_cache = data
+        _companies_cache_at = time.time()
+    else:
+        print(f"[companies] 上流が空配列または非list: type={type(data).__name__} len={len(data) if hasattr(data, '__len__') else 'N/A'}")
+    return data
 
 
 # ===== freee取引先同期ヘルパー =====

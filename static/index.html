@@ -977,6 +977,7 @@ code,emails
             <button class="btn btn-gray" style="padding:4px 10px;" onclick="nextReportMonth()">▶</button>
           </div>
           <button id="btn-excel-download" style="display:none; padding:6px 14px; border:1px solid #e2e8f0; border-radius:6px; background:#f0fdf4; font-size:13px; cursor:pointer;" onclick="downloadGroupExcel()">📥 Excel</button>
+          <button id="btn-refresh-companies" class="btn btn-gray" style="padding:6px 12px; font-size:13px;" onclick="refreshCompanies()" title="会社一覧のキャッシュをクリアして再取得">🔄 会社一覧再取得</button>
           <button id="report-add-btn" class="btn btn-blue" onclick="document.getElementById('input-date').focus()">＋ 追加</button>
         </div>
         <div id="report-summary" style="display:flex; gap:16px; padding:10px 14px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:12px; font-size:13px; flex-wrap:wrap;"></div>
@@ -3450,10 +3451,27 @@ function showArMessage(msg, type) {
     `<div style="background:${colors[type] || '#f5f5f5'};padding:10px 14px;border-radius:6px;white-space:pre-wrap;font-size:13px;">${msg}</div>`;
 }
 
-function refreshCompanies() {
+async function refreshCompanies() {
   localStorage.removeItem('companies_cache');
   localStorage.removeItem('companies_cache_at');
-  alert('会社リストのキャッシュをクリアしました。次回日報を開いた時に最新データが取得されます。');
+  const select = document.getElementById('report-company-select');
+  if (select) {
+    while (select.options.length > 1) select.remove(1);
+  }
+  const companies = await loadCompanies();
+  if (select && Array.isArray(companies) && companies.length > 0) {
+    companies
+      .sort((a, b) => (a.code || '').localeCompare(b.code || ''))
+      .forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = `${c.code}|${c.name}`;
+        opt.textContent = c.code ? `${c.code} ${c.name}` : c.name;
+        select.appendChild(opt);
+      });
+    alert(`会社一覧を再取得しました（${companies.length}社）`);
+  } else {
+    alert('会社一覧の取得に失敗しました。時間をおいて再度お試しください。');
+  }
 }
 
 async function loadCompanies() {
@@ -3467,12 +3485,22 @@ async function loadCompanies() {
   }
   try {
     const r = await fetch('/api/companies/upstream');
+    if (!r.ok) {
+      console.warn(`[loadCompanies] 上流取得失敗 status=${r.status}, localStorageは更新しません`);
+      return cached ? JSON.parse(cached) : [];
+    }
     const data = await r.json();
-    localStorage.setItem(cacheKey, JSON.stringify(data));
-    localStorage.setItem(cacheTimeKey, Date.now().toString());
-    return data;
+    if (Array.isArray(data) && data.length > 0) {
+      localStorage.setItem(cacheKey, JSON.stringify(data));
+      localStorage.setItem(cacheTimeKey, Date.now().toString());
+      return data;
+    }
+    console.warn('[loadCompanies] 上流が空配列または非Array、localStorageは更新しません', data);
+    if (cached) return JSON.parse(cached);
+    return Array.isArray(data) ? data : [];
   } catch (e) {
-    return [];
+    console.warn('[loadCompanies] 通信エラー、localStorageは更新しません', e);
+    return cached ? JSON.parse(cached) : [];
   }
 }
 
