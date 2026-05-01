@@ -4604,6 +4604,7 @@ async function saveCompanyModal(btn) {
     const method = isEdit ? 'PUT' : 'POST';
     const r = await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
     if (!r.ok) throw new Error('http ' + r.status);
+    if (isEdit) localStorage.removeItem(HOME_SCHEDULES_CACHE_KEY);
     showToast(isEdit ? '保存しました' : '会社を追加しました');
     closeCompanyModal();
     await loadCompanyKarteData();
